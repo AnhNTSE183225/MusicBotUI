@@ -1,0 +1,4 @@
+# config.yml
+# When running locally, localhost:8000 is fine.
+# When using GitHub Pages over the internet, change this to your ngrok/cloudflared HTTPS URL
+api_base_url: "http://localhost:8000"

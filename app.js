@@ -1,5 +1,5 @@
-const API_URL = "http://localhost:8000/api";
-const LOGIN_URL = "http://localhost:8000/login";
+let API_URL = "";
+let LOGIN_URL = "";
 
 // Elements
 const loginContainer = document.getElementById("login-container");
@@ -59,6 +59,18 @@ function showApp() {
 }
 
 async function init() {
+    try {
+        const configRes = await fetch("config.yml");
+        const yamlText = await configRes.text();
+        const config = jsyaml.load(yamlText);
+        API_URL = config.api_base_url + "/api";
+        LOGIN_URL = config.api_base_url + "/login";
+    } catch (e) {
+        console.error("Failed to load config.yml", e);
+        alert("Failed to load config.yml. Make sure it exists.");
+        return;
+    }
+
     try {
         const userData = await fetchApi("/me");
         const user = userData.user;
