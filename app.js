@@ -63,8 +63,12 @@ async function init() {
         const configRes = await fetch("config.yml");
         const yamlText = await configRes.text();
         const config = jsyaml.load(yamlText);
-        API_URL = config.api_base_url + "/api";
-        LOGIN_URL = config.api_base_url + "/login";
+        
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const baseUrl = isLocal ? "http://localhost:8000" : config.production_api_url;
+        
+        API_URL = baseUrl + "/api";
+        LOGIN_URL = baseUrl + "/login";
     } catch (e) {
         console.error("Failed to load config.yml", e);
         alert("Failed to load config.yml. Make sure it exists.");
