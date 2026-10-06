@@ -1,4 +1,4 @@
 # config.yml
 # This URL is used when the UI is accessed via GitHub Pages (production).
 # When running locally (localhost or 127.0.0.1), the UI automatically ignores this and uses http://localhost:8000.
-production_api_url: "https://theanh.tail38dac5.ts.net/"
+production_api_url: "https://theanh.tail38dac5.ts.net"
