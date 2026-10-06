@@ -35,7 +35,12 @@ let currentIsAdmin = false;
 
 // Helper to make API calls with credentials
 async function fetchApi(endpoint, options = {}) {
-    options.credentials = "include"; // Send cookies
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+        if (!options.headers) options.headers = {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+    }
+    
     const res = await fetch(`${API_URL}${endpoint}`, options);
     if (res.status === 401 || res.status === 403) {
         showLogin();
@@ -73,6 +78,14 @@ async function init() {
         console.error("Failed to load config.yml", e);
         alert("Failed to load config.yml. Make sure it exists.");
         return;
+    }
+
+    // Parse token from URL if redirected from login
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) {
+        localStorage.setItem('auth_token', token);
+        window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     try {
@@ -299,8 +312,7 @@ loginBtn.addEventListener("click", () => {
 });
 
 logoutBtn.addEventListener("click", () => {
-    // In a real app, you'd call a /logout endpoint to clear the session
-    document.cookie = "session_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    localStorage.removeItem("auth_token");
     showLogin();
 });
 
