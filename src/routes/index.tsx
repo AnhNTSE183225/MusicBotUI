@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { checkAuth, getLoginUrl, getGuilds, getQueue, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear } from '@/lib/api'
+import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear } from '@/lib/api'
 
 import ocean from '@/assets/ocean-drive.jpg'
 import dunes from '@/assets/sundown.jpg'
@@ -52,6 +52,7 @@ const idleTrack: Track = {
 
 function MusicRoom() {
   const [user, setUser] = useState<any>(null)
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false)
   const [guilds, setGuilds] = useState<any[]>([])
   const [currentGuildId, setCurrentGuildId] = useState<string | null>(null)
   
@@ -70,6 +71,10 @@ function MusicRoom() {
   const [position, setPosition] = useState(0)
   const [skipVotes, setSkipVotes] = useState(0)
   const [skipVotesReq, setSkipVotesReq] = useState(0)
+  const [pauseVotes, setPauseVotes] = useState(0)
+  const [pauseVotesReq, setPauseVotesReq] = useState(0)
+  const [resumeVotes, setResumeVotes] = useState(0)
+  const [resumeVotesReq, setResumeVotesReq] = useState(0)
 
   useEffect(() => {
     if (notice) {
@@ -98,71 +103,98 @@ function MusicRoom() {
           }
         });
       }
+      setIsAuthLoaded(true);
     });
   }, []);
 
-  // Polling state
+  // SSE connection
   useEffect(() => {
     if (!currentGuildId || !user) return;
-    const poll = async () => {
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let isMounted = true;
+
+    const connect = async () => {
       try {
-        const state = await getQueue(currentGuildId);
+        const streamUrl = await getStreamUrl(currentGuildId);
+        if (!isMounted) return;
+        eventSource = new EventSource(streamUrl);
         
-        if (state.current) {
-          setCurrent({
-            id: 'current',
-            title: state.current.title,
-            artist: state.current.artist || 'Unknown Artist',
-            album: 'Discord',
-            image: state.current.thumbnail || getImageForTrack(state.current.title),
-            duration: state.current.duration || 0,
-            requestedBy: state.current.requester_handle || 'Unknown'
-          });
-          setStopped(false);
-          setPlaying(!state.is_paused);
-          setPosition(Math.floor(state.position || 0));
-        } else {
-          setCurrent(null);
-          setStopped(true);
-          setPlaying(false);
-          setPosition(0);
-        }
-        
-        if (state.volume !== undefined) setVolume(state.volume);
-        if (state.loop !== undefined) setLoop(state.loop);
-        if (state.skip_votes !== undefined) setSkipVotes(state.skip_votes);
-        if (state.skip_votes_required !== undefined) setSkipVotesReq(state.skip_votes_required);
-        
-        if (state.queue && state.queue.length > 0) {
-            setQueue(state.queue.map((q: any, i: number) => ({
-                id: `q-${i}`,
-                title: q.title,
-                artist: q.artist || 'Unknown Artist',
+        eventSource.onmessage = (event) => {
+          try {
+            const state = JSON.parse(event.data);
+            
+            if (state.current) {
+              setCurrent({
+                id: 'current',
+                title: state.current.title,
+                artist: state.current.artist || 'Unknown Artist',
                 album: 'Discord',
-                image: q.thumbnail || getImageForTrack(q.title),
-                duration: q.duration || 0,
-                requestedBy: q.requester_handle || 'Unknown',
-                originalIndex: i
-            })));
-        } else {
-            setQueue([]);
+                image: state.current.thumbnail || getImageForTrack(state.current.title),
+                duration: state.current.duration || 0,
+                requestedBy: state.current.requester_handle || 'Unknown'
+              });
+              setStopped(false);
+              setPlaying(!state.is_paused);
+              setPosition(Math.floor(state.position || 0));
+            } else {
+              setCurrent(null);
+              setStopped(true);
+              setPlaying(false);
+              setPosition(0);
+            }
+            
+            if (state.volume !== undefined) {
+               let vol = state.volume;
+               if (vol <= 1.0 && vol > 0 || vol === 0 || vol === 1) vol = Math.round(vol * 100);
+               setVolume(vol);
+            }
+            if (state.loop !== undefined) setLoop(!!state.loop);
+            if (state.bot_connected !== undefined) setSummoned(!!state.bot_connected);
+            if (state.skip_votes !== undefined) setSkipVotes(state.skip_votes);
+            if (state.skip_votes_required !== undefined) setSkipVotesReq(state.skip_votes_required);
+            if (state.pause_votes !== undefined) setPauseVotes(state.pause_votes);
+            if (state.pause_votes_required !== undefined) setPauseVotesReq(state.pause_votes_required);
+            if (state.resume_votes !== undefined) setResumeVotes(state.resume_votes);
+            if (state.resume_votes_required !== undefined) setResumeVotesReq(state.resume_votes_required);
+            
+            if (state.queue && state.queue.length > 0) {
+                setQueue(state.queue.map((q: any, i: number) => ({
+                    id: `q-${i}`,
+                    title: q.title,
+                    artist: q.artist || 'Unknown Artist',
+                    album: 'Discord',
+                    image: q.thumbnail || getImageForTrack(q.title),
+                    duration: q.duration || 0,
+                    requestedBy: q.requester_handle || 'Unknown',
+                    originalIndex: i
+                })));
+            } else {
+                setQueue([]);
+            }
+          } catch (err) {}
+        };
+
+        eventSource.onerror = () => {
+          eventSource?.close();
+          if (isMounted) {
+            reconnectTimeout = setTimeout(connect, 3000);
+          }
+        };
+      } catch (err) {
+        if (isMounted) {
+          reconnectTimeout = setTimeout(connect, 3000);
         }
-        
-        if (state.volume !== undefined) {
-           let vol = state.volume;
-           if (vol <= 1.0 && vol > 0 || vol === 0 || vol === 1) vol = Math.round(vol * 100);
-           setVolume(vol);
-        }
-        setLoop(!!state.loop);
-        
-      } catch (e) {
-        // Silently ignore polling errors to prevent Lovable UI toasts
       }
     };
     
-    poll();
-    const interval = setInterval(poll, 3000);
-    return () => clearInterval(interval);
+    connect();
+
+    return () => {
+      isMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSource) eventSource.close();
+    };
   }, [currentGuildId, user]);
 
   const displayCurrent = current || idleTrack;
@@ -182,31 +214,40 @@ function MusicRoom() {
 
   const handleSkip = async () => {
       if (!currentGuildId) return;
-      await controlSkip(currentGuildId);
+      try { await controlSkip(currentGuildId); } catch(e: any) { setNotice(e.message || 'Action failed'); }
   }
   const handleStop = async () => {
       if (!currentGuildId) return;
-      await controlStop(currentGuildId);
+      try { await controlStop(currentGuildId); } catch(e: any) { setNotice(e.message || 'Action failed'); }
   }
   const handleTogglePlay = async () => {
       if (!currentGuildId) return;
-      if (playing) {
-          await controlPause(currentGuildId);
-          setPlaying(false);
-      } else {
-          await controlResume(currentGuildId);
-          setPlaying(true);
+      try {
+          if (playing) {
+              await controlPause(currentGuildId);
+          } else {
+              await controlResume(currentGuildId);
+          }
+      } catch(e: any) {
+          setNotice(e.message || 'Action failed');
       }
   }
   const handleLoop = async () => {
       if (!currentGuildId) return;
-      await controlLoop(currentGuildId);
-      setLoop(!loop);
+      try {
+          await controlLoop(currentGuildId);
+      } catch(e: any) {
+          setNotice(e.message || 'Action failed');
+      }
   }
   const handleVolume = async (val: number) => {
       if (!currentGuildId) return;
       setVolume(val);
-      await controlVolume(currentGuildId, val);
+      try {
+          await controlVolume(currentGuildId, val);
+      } catch(e: any) {
+          setNotice(e.message || 'Action failed');
+      }
   }
   
   const handleAddSong = async (e: React.FormEvent) => {
@@ -224,12 +265,12 @@ function MusicRoom() {
 
   const handleSkipTo = async (index: number) => {
       if (!currentGuildId) return;
-      await controlSkipTo(currentGuildId, index + 1); // +1 because backend expects 1-based index
+      try { await controlSkipTo(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
   }
 
   const handleRemove = async (index: number) => {
       if (!currentGuildId) return;
-      await controlRemove(currentGuildId, index + 1);
+      try { await controlRemove(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
   }
 
   return <TooltipProvider delayDuration={200}>
@@ -240,7 +281,7 @@ function MusicRoom() {
         <a href="/" className="brand"><span className="brand-mark"><AudioLines /></span><span>musicbot<span className="brand-dot">.</span></span></a>
         <div className="header-room"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="server-select"><span className="server-symbol"><Headphones size={15} /></span>{currentGuildName}<ChevronDown size={14} /></Button></DropdownMenuTrigger><DropdownMenuContent align="center"><DropdownMenuLabel>Your servers</DropdownMenuLabel>{guilds.map(g => <DropdownMenuItem key={g.id} onClick={() => {setCurrentGuildId(g.id); setSummoned(g.bot_connected)}}><Headphones />{g.name}{g.id === currentGuildId && <Check className="ml-auto" />}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu><span className="header-divider" /><span className="header-channel"><Radio size={14} /> lounge</span></div>
         <div className="header-actions">
-           {!user ? <Button variant="secondary" onClick={() => window.location.href = getLoginUrl()}>Login with Discord</Button> : (
+           {!isAuthLoaded ? null : !user ? <Button variant="secondary" onClick={() => window.location.href = getLoginUrl()}>Login with Discord</Button> : (
             <><span className="preview-tag">Live Session</span>
             <IconControl label="Connection settings" onClick={() => setDialog('connection')}><Settings2 /></IconControl>
             <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="user-avatar" aria-label="Account menu">{user.username.charAt(0).toUpperCase()}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Account · {user.username}</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuItem onClick={() => {localStorage.removeItem('auth_token'); window.location.reload()}}>Logout</DropdownMenuItem></DropdownMenuContent></DropdownMenu></>
@@ -248,7 +289,7 @@ function MusicRoom() {
         </div>
       </header>
 
-      <main className="room-main">
+      <main className="room-main" style={(!user && isAuthLoaded) ? { filter: 'blur(12px)', pointerEvents: 'none', userSelect: 'none' } : {}}>
         <div className="page-intro"><div><div className="eyebrow">GOOD MUSIC. BETTER COMPANY.</div><h1>Your listening room<span className="heading-dot">.</span></h1></div></div>
 
         <div className="music-layout">
@@ -261,10 +302,13 @@ function MusicRoom() {
             <div className="playback-controls">
                 <IconControl label={loop ? 'Disable loop' : 'Loop track'} active={loop} onClick={handleLoop}><Repeat2 /></IconControl>
                 <IconControl label="Previous track" disabled><SkipBack className="fill-current opacity-50" /></IconControl>
-                <Button size="icon" className="play-button mx-2" aria-label={playing ? 'Pause playback' : 'Play playback'} onClick={handleTogglePlay}>{playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}</Button>
+                <div className="relative">
+                  <Button size="icon" className="play-button mx-2" aria-label={playing ? 'Pause playback' : 'Play playback'} onClick={handleTogglePlay}>{playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}</Button>
+                  <span className="absolute -top-1 -right-0 text-[10px] bg-black/40 text-white px-1 py-[1px] rounded pointer-events-none border border-white/10">{playing ? pauseVotes : resumeVotes}/{playing ? (pauseVotesReq || 1) : (resumeVotesReq || 1)}</span>
+                </div>
                 <div className="relative">
                   <IconControl label="Skip track" onClick={handleSkip}><SkipForward className="fill-current" /></IconControl>
-                  {skipVotes > 0 && <span className="absolute -top-2 -right-3 text-[10px] bg-white/10 px-1 py-0.5 rounded pointer-events-none">{skipVotes}/{skipVotesReq}</span>}
+                  <span className="absolute -top-2 -right-3 text-[10px] bg-black/40 text-white px-1 py-[1px] rounded pointer-events-none border border-white/10">{skipVotes}/{skipVotesReq || 1}</span>
                 </div>
                 <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="text-muted-foreground" aria-label="More playback options"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem onClick={() => setNotice(`${displayCurrent.title} · ${displayCurrent.artist}`)}>Track details</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             </div>
@@ -273,16 +317,36 @@ function MusicRoom() {
           </section>
 
           <section className="queue-panel glass-surface" aria-label="Track queue">
-            <div className="queue-heading"><div><h2>Up next <span className="queue-count">{queue.length}</span></h2><p>Your shared soundtrack.</p></div><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Queue options" className="text-muted-foreground"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={async () => { if (currentGuildId) { await controlClear(currentGuildId); setNotice('Queue cleared'); } }}><Trash2 />Clear queue</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
+            <div className="queue-heading"><div><h2>Up next <span className="queue-count">{queue.length}</span></h2><p>Your shared soundtrack.</p></div><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Queue options" className="text-muted-foreground"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={async () => { if (currentGuildId) { try { await controlClear(currentGuildId); setNotice('Queue cleared'); } catch(e: any) { setNotice(e.message || 'Failed to clear queue'); } } }}><Trash2 />Clear queue</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
             <form className="add-track" onSubmit={handleAddSong}><Music2 size={18} /><Input aria-label="Song search or URL" placeholder="Paste a link or search for a song" value={query} onChange={event => setQuery(event.target.value)} /><Button size="icon" aria-label="Add to queue" disabled={!query.trim()} type="submit"><Plus /></Button></form>
             <div className="queue-tabs"><Button variant="ghost" className="queue-tab active-tab">Queue</Button><span>{`${Math.round(total / 60)} min`}</span></div>
             <div className="queue-list">{queue.map((track, index) => <div className="queue-row" key={track.id}><span className="track-number">{String(index + 1).padStart(2, '0')}</span><div className="queue-art"><img src={track.image} alt="" loading="lazy" width={56} height={56} /><Button variant="ghost" size="icon" aria-label={`Play ${track.title} next`} className="queue-play" onClick={() => handleSkipTo(index)}><Play className="fill-current" /></Button></div><div className="queue-track-info"><h3>{track.title}</h3><p>{track.artist}</p><span>Added by {track.requestedBy}</span></div><span className="track-duration">{formatTime(track.duration)}</span><IconControl label={`Remove ${track.title}`} onClick={() => handleRemove(index)} className="remove-track"><X size={15} /></IconControl></div>)}{!queue.length && <div className="empty-queue"><ListMusic size={30} /><h3>A little quiet in here.</h3><p>No tracks in the queue.</p></div>}</div>
             <div className="queue-bottom"><ListMusic size={15} /><span>{queue.length} tracks in the queue</span><span className="queue-bottom-dot" /><span>Made for sharing</span></div>
           </section>
         </div>
-        <div className="session-band"><div className="voice-icon"><Radio size={19} /></div><div className="session-info"><strong>{summoned ? `Together in ${currentGuildName}` : `Waiting in ${currentGuildName}`}</strong><span>{summoned ? `${currentGuildName} · Listeners` : 'MusicBot is not in this channel'}</span></div><div className="session-status">{summoned ? <><span className="status-dot" />Connected</> : <Button size="sm" onClick={handleSummon}><Plus size={14} />Summon bot</Button>}</div><span className="session-divider" />{summoned && <Button variant="ghost" className="session-menu hover:text-red-400 hover:bg-red-500/10" style={{marginRight: '8px', color: '#ef4444'}} onClick={handleStop}><Square size={15} className="mr-1.5" fill="currentColor" />Stop Bot</Button>}<Button variant="ghost" className="session-menu" onClick={handleSummon}><Headphones size={15} />{summoned ? 'Leave channel' : 'Join channel'}</Button></div>
+        <div className="session-band"><div className="voice-icon"><Radio size={19} /></div><div className="session-info"><strong>{summoned ? `Together in ${currentGuildName}` : `Waiting in ${currentGuildName}`}</strong><span>{summoned ? `${currentGuildName} · Listeners` : 'MusicBot is not in this channel'}</span></div><div className="session-status">{summoned ? <><span className="status-dot" />Connected</> : <Button size="sm" onClick={handleSummon}><Plus size={14} />Summon bot</Button>}</div><span className="session-divider" />{summoned && <Button variant="ghost" className="session-menu hover:text-red-400 hover:bg-red-500/10" style={{marginRight: '8px', color: '#ef4444'}} onClick={handleStop}><Square size={15} className="mr-1.5" fill="currentColor" />Stop Bot</Button>}{!summoned && <Button variant="ghost" className="session-menu" onClick={handleSummon}><Headphones size={15} />Join channel</Button>}</div>
         <footer className="app-footer"><span>Music brings us together.</span><Button variant="ghost" size="sm" onClick={() => setDialog('help')}><CircleHelp size={14} />Need a hand?</Button></footer>
       </main>
+
+      {!user && isAuthLoaded && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/40">
+          <div className="max-w-md w-full mx-4 p-8 text-center glass-surface flex flex-col items-center gap-6 rounded-2xl border border-white/10 shadow-2xl">
+            <div className="bg-primary/20 p-4 rounded-full">
+              <AudioLines className="w-10 h-10 text-primary" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-semibold tracking-tight">Sign in to listen</h2>
+              <p className="text-muted-foreground text-sm">
+                You need to connect your Discord account to access the listening room, view the shared queue, and control playback.
+              </p>
+            </div>
+            <Button size="lg" className="w-full font-semibold" onClick={() => window.location.href = getLoginUrl()}>
+              Login with Discord
+            </Button>
+          </div>
+        </div>
+      )}
+
       {notice && <div className="notice" role="status">{notice}<Button variant="ghost" size="icon" aria-label="Dismiss notification" onClick={() => setNotice('')}><X /></Button></div>}
       <Dialog open={dialog !== null} onOpenChange={open => {if (!open) setDialog(null)}}><DialogContent className="connection-dialog"><DialogHeader><div className="dialog-icon"><AudioLines size={26} /></div><DialogTitle>{dialog === 'help' ? 'Your shared listening room' : 'Connect your MusicBot'}</DialogTitle><DialogDescription>{dialog === 'help' ? 'This is a live session connected to your Discord bot.' : 'You are currently connected to Discord.'}</DialogDescription></DialogHeader><div className="connection-detail"><span>Discord connection</span><span className="text-muted-foreground">Configured</span></div><Button onClick={() => setDialog(null)}>Back to the music</Button></DialogContent></Dialog>
     </div>

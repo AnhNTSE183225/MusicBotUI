@@ -6,17 +6,24 @@ let LOGIN_URL = "";
 export async function initConfig() {
     if (API_URL) return; // Already initialized
     try {
-        const configRes = await fetch("/config.yml");
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const configPath = isLocal ? "/config.yml" : "/config.prod.yml";
+        
+        const configRes = await fetch(configPath);
+        if (!configRes.ok) {
+            throw new Error(`Failed to load ${configPath}: ${configRes.statusText}`);
+        }
+        
         const yamlText = await configRes.text();
         const config = load(yamlText) as any;
         
-        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-        const baseUrl = isLocal ? "http://localhost:8000" : config.production_api_url;
+        // Support both old production_api_url and new api_url
+        const baseUrl = config.api_url || config.production_api_url || (isLocal ? "http://localhost:8000" : "");
         
         API_URL = baseUrl + "/api";
         LOGIN_URL = baseUrl + "/login";
     } catch (e) {
-        console.error("Failed to load config.yml", e);
+        console.error("Failed to load configuration", e);
         throw e;
     }
 }
@@ -79,6 +86,12 @@ export async function getGuilds() {
 
 export async function getQueue(guildId: string) {
     return await fetchApi(`/queue/${guildId}`);
+}
+
+export async function getStreamUrl(guildId: string) {
+    await initConfig();
+    const token = localStorage.getItem('auth_token');
+    return `${API_URL}/stream/${guildId}?token=${token}`;
 }
 
 export async function addSong(guildId: string, url: string) {
