@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, useMemo, type ReactNode } from 'react'
 import { AudioLines, ArrowUpRight, Check, ChevronDown, CircleHelp, Headphones, Heart, ListMusic, MoreHorizontal, Music2, Pause, Play, Plus, Radio, Repeat2, Settings2, SkipBack, SkipForward, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -61,12 +61,10 @@ function MusicRoom() {
   const [playing, setPlaying] = useState(false)
   const [stopped, setStopped] = useState(true)
   const [loop, setLoop] = useState(false)
-  const [liked, setLiked] = useState(false)
   const [volume, setVolume] = useState(75)
   const [query, setQuery] = useState('')
   const [dialog, setDialog] = useState<'connection' | 'help' | null>(null)
   const [notice, setNotice] = useState('')
-  const [tab, setTab] = useState<'queue' | 'history'>('queue')
   const [summoned, setSummoned] = useState(false)
   const [position, setPosition] = useState(0)
   const [skipVotes, setSkipVotes] = useState(0)
@@ -89,10 +87,9 @@ function MusicRoom() {
   }, [queueIndex]);
 
   useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(''), 3000);
-      return () => clearTimeout(timer);
-    }
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), 3000);
+    return () => clearTimeout(timer);
   }, [notice]);
 
   useEffect(() => {
@@ -189,7 +186,7 @@ function MusicRoom() {
             } else {
                 setQueue([]);
             }
-          } catch (err) {}
+          } catch (err) { console.warn('SSE parse error:', err); }
         };
 
         eventSource.onerror = () => {
@@ -214,17 +211,17 @@ function MusicRoom() {
     };
   }, [currentGuildId, user]);
 
-  const displayCurrent = current || idleTrack;
-  const total = queue.reduce((sum, track) => sum + track.duration, 0)
+  const displayCurrent = useMemo(() => current || idleTrack, [current]);
+  const total = useMemo(() => queue.reduce((sum, track) => sum + track.duration, 0), [queue])
   
-  const totalPages = Math.ceil(queue.length / ITEMS_PER_PAGE) || 1;
+  const totalPages = useMemo(() => Math.ceil(queue.length / ITEMS_PER_PAGE) || 1, [queue.length]);
   // Ensure currentPage is within bounds if queue size changes
-  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
-  const paginatedQueue = queue.slice((validCurrentPage - 1) * ITEMS_PER_PAGE, validCurrentPage * ITEMS_PER_PAGE);
+  const validCurrentPage = useMemo(() => Math.min(Math.max(1, currentPage), totalPages), [currentPage, totalPages]);
+  const paginatedQueue = useMemo(() => queue.slice((validCurrentPage - 1) * ITEMS_PER_PAGE, validCurrentPage * ITEMS_PER_PAGE), [queue, validCurrentPage]);
   
-  const currentGuildName = guilds.find(g => g.id === currentGuildId)?.name || 'The Listening Room';
+  const currentGuildName = useMemo(() => guilds.find(g => g.id === currentGuildId)?.name || 'The Listening Room', [guilds, currentGuildId]);
 
-  const handleSummon = async () => {
+  const handleSummon = useCallback(async () => {
       if (!currentGuildId) return;
       try {
           await controlJoin(currentGuildId);
@@ -232,17 +229,17 @@ function MusicRoom() {
       } catch(e) {
           setNotice('Failed to join channel');
       }
-  }
+  }, [currentGuildId]);
 
-  const handleSkip = async () => {
+  const handleSkip = useCallback(async () => {
       if (!currentGuildId) return;
       try { await controlSkip(currentGuildId); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }
-  const handleStop = async () => {
+  }, [currentGuildId]);
+  const handleStop = useCallback(async () => {
       if (!currentGuildId) return;
       try { await controlStop(currentGuildId); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }
-  const handleTogglePlay = async () => {
+  }, [currentGuildId]);
+  const handleTogglePlay = useCallback(async () => {
       if (!currentGuildId) return;
       try {
           if (playing) {
@@ -253,16 +250,16 @@ function MusicRoom() {
       } catch(e: any) {
           setNotice(e.message || 'Action failed');
       }
-  }
-  const handleLoop = async () => {
+  }, [currentGuildId, playing]);
+  const handleLoop = useCallback(async () => {
       if (!currentGuildId) return;
       try {
           await controlLoop(currentGuildId);
       } catch(e: any) {
           setNotice(e.message || 'Action failed');
       }
-  }
-  const handleVolume = async (val: number) => {
+  }, [currentGuildId]);
+  const handleVolume = useCallback(async (val: number) => {
       if (!currentGuildId) return;
       setVolume(val);
       try {
@@ -270,9 +267,9 @@ function MusicRoom() {
       } catch(e: any) {
           setNotice(e.message || 'Action failed');
       }
-  }
+  }, [currentGuildId]);
   
-  const handleAddSong = async (e: React.FormEvent) => {
+  const handleAddSong = useCallback(async (e: React.FormEvent) => {
       e.preventDefault();
       if (!query.trim() || !currentGuildId) return;
       const url = query.trim();
@@ -283,17 +280,17 @@ function MusicRoom() {
       } catch(e) {
           setNotice('Failed to add song');
       }
-  }
+  }, [currentGuildId, query]);
 
-  const handleSkipTo = async (index: number) => {
+  const handleSkipTo = useCallback(async (index: number) => {
       if (!currentGuildId) return;
       try { await controlSkipTo(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }
+  }, [currentGuildId]);
 
-  const handleRemove = async (index: number) => {
+  const handleRemove = useCallback(async (index: number) => {
       if (!currentGuildId) return;
       try { await controlRemove(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }
+  }, [currentGuildId]);
 
   return <TooltipProvider delayDuration={200}>
     <div className="music-app">
@@ -306,7 +303,7 @@ function MusicRoom() {
            {!isAuthLoaded ? null : !user ? <Button variant="secondary" onClick={() => window.location.href = getLoginUrl()}>Login with Discord</Button> : (
             <><span className="preview-tag">Live Session</span>
             <IconControl label="Connection settings" onClick={() => setDialog('connection')}><Settings2 /></IconControl>
-            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="user-avatar" aria-label="Account menu">{user.username.charAt(0).toUpperCase()}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Account · {user.username}</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuItem onClick={() => {localStorage.removeItem('auth_token'); window.location.reload()}}>Logout</DropdownMenuItem></DropdownMenuContent></DropdownMenu></>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="user-avatar p-0 overflow-hidden" aria-label="Account menu">{user.avatar ? <img src={`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`} alt="" className="w-full h-full object-cover rounded-full" /> : (user.username.charAt(0).toUpperCase())}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Account · {user.username}</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuItem onClick={() => {localStorage.removeItem('auth_token'); window.location.reload()}}>Logout</DropdownMenuItem></DropdownMenuContent></DropdownMenu></>
            )}
         </div>
       </header>
@@ -316,7 +313,7 @@ function MusicRoom() {
 
         <div className="music-layout">
           <section className="player-panel glass-surface" aria-label="Music player">
-            <div className="section-topline"><div className="section-label"><span className={`equalizer ${playing && !stopped ? 'is-playing' : ''}`}><i /><i /><i /><i /></span>{stopped ? 'PLAYBACK STOPPED' : playing ? 'NOW PLAYING' : 'PAUSED'}</div><span className="source-tag"><span className="source-dot" /> YouTube</span></div>
+            <div className="section-topline"><div className="section-label"><span className={`equalizer ${playing && !stopped ? 'is-playing' : ''}`}><i /><i /><i /><i /></span>{stopped ? 'PLAYBACK STOPPED' : playing ? 'NOW PLAYING' : 'PAUSED'}</div><span className="source-tag"><span className="source-dot" /> Stream</span></div>
             <div className="artwork-stage"><img key={displayCurrent.id} className="album-art" src={displayCurrent.image} alt={`${displayCurrent.title} album artwork`} width={1024} height={1024} /><span className="album-caption">{displayCurrent.album}</span></div>
             <div className="track-details"><div><h2>{displayCurrent.title}</h2><p>{displayCurrent.artist}</p></div></div>
             <div className="track-context">{displayCurrent.requestedAvatar ? <img src={displayCurrent.requestedAvatar} alt="" className="tiny-avatar !p-0 object-cover" /> : <span className="tiny-avatar">{displayCurrent.requestedBy.charAt(0).toUpperCase() || 'U'}</span>}Added by {displayCurrent.requestedBy}<span className="context-dot">·</span><span>{displayCurrent.album}</span></div>

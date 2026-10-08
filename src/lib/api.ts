@@ -6,7 +6,7 @@ let LOGIN_URL = "";
 export async function initConfig() {
     if (API_URL) return; // Already initialized
     try {
-        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const isLocal = import.meta.env.DEV;
         const configPath = isLocal ? "/config.yml" : "/config.prod.yml";
         
         const configRes = await fetch(configPath);
@@ -51,7 +51,8 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
         throw new Error("Unauthorized");
     }
     if (!res.ok) {
-        throw new Error(`API error: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        throw new Error(body || `API error: ${res.status}`);
     }
     return res.json();
 }

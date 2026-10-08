@@ -7,7 +7,9 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  server: { port: 8080 },
+  vite: {
+    server: { port: 8080 },
+  },
   tanstackStart: {
     ssr: false,
     server: { entry: "server" },
