@@ -13,3 +13,4 @@
 - Keep the MusicBot presentation at the index route and use existing UI primitives; the requested experience opens immediately at the home URL.
 - Treat the supplied session as an explicitly labeled visual preview until an existing bot API is provided; never imply sample data is synced to Discord or implement independent audio playback.
 - Keep album artwork bundled and derive ambience from the currently displayed artwork; visual lighting must follow the music rather than unrelated decoration.
+- Follow the design system guidelines in `DESIGN.md`: maintain the normalized 4-tier typography scale (minimum 11px font size) and keep the desktop layout within a no-scroll single-page viewport (compact 56px header, internal queue scrolling).
