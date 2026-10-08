@@ -34,7 +34,7 @@ function IconControl({ label, children, onClick, active = false, disabled = fals
   return <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label={label} aria-pressed={active} disabled={disabled} onClick={onClick} className={`${active ? 'text-primary' : 'text-muted-foreground'} ${className}`}>{children}</Button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>
 }
 
-export type Track = { id: string; title: string; artist: string; album: string; image: string; duration: number; requestedBy: string; originalIndex?: number }
+export type Track = { id: string; title: string; artist: string; album: string; image: string; duration: number; requestedBy: string; requestedAvatar?: string | null; originalIndex?: number }
 
 const images = [ocean, dunes, coast];
 function getImageForTrack(title: string) {
@@ -75,6 +75,18 @@ function MusicRoom() {
   const [pauseVotesReq, setPauseVotesReq] = useState(0)
   const [resumeVotes, setResumeVotes] = useState(0)
   const [resumeVotesReq, setResumeVotesReq] = useState(0)
+  const [stopVotes, setStopVotes] = useState(0)
+  const [stopVotesReq, setStopVotesReq] = useState(0)
+  
+  const [currentPage, setCurrentPage] = useState(1)
+  const [queueIndex, setQueueIndex] = useState(-1)
+  const ITEMS_PER_PAGE = 10
+
+  useEffect(() => {
+    if (queueIndex >= 0) {
+      setCurrentPage(Math.floor(queueIndex / ITEMS_PER_PAGE) + 1);
+    }
+  }, [queueIndex]);
 
   useEffect(() => {
     if (notice) {
@@ -132,7 +144,8 @@ function MusicRoom() {
                 album: 'Discord',
                 image: state.current.thumbnail || getImageForTrack(state.current.title),
                 duration: state.current.duration || 0,
-                requestedBy: state.current.requester_handle || 'Unknown'
+                requestedBy: state.current.requester_handle || 'Unknown',
+                requestedAvatar: state.current.requester_avatar || null
               });
               setStopped(false);
               setPlaying(!state.is_paused);
@@ -157,6 +170,9 @@ function MusicRoom() {
             if (state.pause_votes_required !== undefined) setPauseVotesReq(state.pause_votes_required);
             if (state.resume_votes !== undefined) setResumeVotes(state.resume_votes);
             if (state.resume_votes_required !== undefined) setResumeVotesReq(state.resume_votes_required);
+            if (state.stop_votes !== undefined) setStopVotes(state.stop_votes);
+            if (state.stop_votes_required !== undefined) setStopVotesReq(state.stop_votes_required);
+            if (state.queue_index !== undefined) setQueueIndex(state.queue_index);
             
             if (state.queue && state.queue.length > 0) {
                 setQueue(state.queue.map((q: any, i: number) => ({
@@ -167,6 +183,7 @@ function MusicRoom() {
                     image: q.thumbnail || getImageForTrack(q.title),
                     duration: q.duration || 0,
                     requestedBy: q.requester_handle || 'Unknown',
+                    requestedAvatar: q.requester_avatar || null,
                     originalIndex: i
                 })));
             } else {
@@ -199,6 +216,11 @@ function MusicRoom() {
 
   const displayCurrent = current || idleTrack;
   const total = queue.reduce((sum, track) => sum + track.duration, 0)
+  
+  const totalPages = Math.ceil(queue.length / ITEMS_PER_PAGE) || 1;
+  // Ensure currentPage is within bounds if queue size changes
+  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedQueue = queue.slice((validCurrentPage - 1) * ITEMS_PER_PAGE, validCurrentPage * ITEMS_PER_PAGE);
   
   const currentGuildName = guilds.find(g => g.id === currentGuildId)?.name || 'The Listening Room';
 
@@ -297,7 +319,7 @@ function MusicRoom() {
             <div className="section-topline"><div className="section-label"><span className={`equalizer ${playing && !stopped ? 'is-playing' : ''}`}><i /><i /><i /><i /></span>{stopped ? 'PLAYBACK STOPPED' : playing ? 'NOW PLAYING' : 'PAUSED'}</div><span className="source-tag"><span className="source-dot" /> YouTube</span></div>
             <div className="artwork-stage"><img key={displayCurrent.id} className="album-art" src={displayCurrent.image} alt={`${displayCurrent.title} album artwork`} width={1024} height={1024} /><span className="album-caption">{displayCurrent.album}</span></div>
             <div className="track-details"><div><h2>{displayCurrent.title}</h2><p>{displayCurrent.artist}</p></div></div>
-            <div className="track-context"><span className="tiny-avatar">{displayCurrent.requestedBy.charAt(0).toUpperCase() || 'U'}</span>Added by {displayCurrent.requestedBy}<span className="context-dot">·</span><span>{displayCurrent.album}</span></div>
+            <div className="track-context">{displayCurrent.requestedAvatar ? <img src={displayCurrent.requestedAvatar} alt="" className="tiny-avatar !p-0 object-cover" /> : <span className="tiny-avatar">{displayCurrent.requestedBy.charAt(0).toUpperCase() || 'U'}</span>}Added by {displayCurrent.requestedBy}<span className="context-dot">·</span><span>{displayCurrent.album}</span></div>
             <div className="progress-area"><div className="progress-track" role="progressbar" aria-label="Track progress" aria-valuenow={stopped ? 0 : position} aria-valuemin={0} aria-valuemax={displayCurrent.duration}><progress value={stopped ? 0 : position} max={displayCurrent.duration} /></div><div className="time-labels"><span>{formatTime(stopped ? 0 : position)}</span><span>{formatTime(displayCurrent.duration)}</span></div></div>
             <div className="playback-controls">
                 <IconControl label={loop ? 'Disable loop' : 'Loop track'} active={loop} onClick={handleLoop}><Repeat2 /></IconControl>
@@ -320,11 +342,18 @@ function MusicRoom() {
             <div className="queue-heading"><div><h2>Up next <span className="queue-count">{queue.length}</span></h2><p>Your shared soundtrack.</p></div><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Queue options" className="text-muted-foreground"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={async () => { if (currentGuildId) { try { await controlClear(currentGuildId); setNotice('Queue cleared'); } catch(e: any) { setNotice(e.message || 'Failed to clear queue'); } } }}><Trash2 />Clear queue</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
             <form className="add-track" onSubmit={handleAddSong}><Music2 size={18} /><Input aria-label="Song search or URL" placeholder="Paste a link or search for a song" value={query} onChange={event => setQuery(event.target.value)} /><Button size="icon" aria-label="Add to queue" disabled={!query.trim()} type="submit"><Plus /></Button></form>
             <div className="queue-tabs"><Button variant="ghost" className="queue-tab active-tab">Queue</Button><span>{`${Math.round(total / 60)} min`}</span></div>
-            <div className="queue-list">{queue.map((track, index) => <div className="queue-row" key={track.id}><span className="track-number">{String(index + 1).padStart(2, '0')}</span><div className="queue-art"><img src={track.image} alt="" loading="lazy" width={56} height={56} /><Button variant="ghost" size="icon" aria-label={`Play ${track.title} next`} className="queue-play" onClick={() => handleSkipTo(index)}><Play className="fill-current" /></Button></div><div className="queue-track-info"><h3>{track.title}</h3><p>{track.artist}</p><span>Added by {track.requestedBy}</span></div><span className="track-duration">{formatTime(track.duration)}</span><IconControl label={`Remove ${track.title}`} onClick={() => handleRemove(index)} className="remove-track"><X size={15} /></IconControl></div>)}{!queue.length && <div className="empty-queue"><ListMusic size={30} /><h3>A little quiet in here.</h3><p>No tracks in the queue.</p></div>}</div>
+            <div className="queue-list">{paginatedQueue.map((track) => <div className="queue-row" key={track.id}><span className="track-number">{String((track.originalIndex ?? 0) + 1).padStart(2, '0')}</span><div className="queue-art"><img src={track.image} alt="" loading="lazy" width={56} height={56} /><Button variant="ghost" size="icon" aria-label={`Play ${track.title} next`} className="queue-play" onClick={() => handleSkipTo(track.originalIndex ?? 0)}><Play className="fill-current" /></Button></div><div className="queue-track-info"><h3>{track.title}</h3><p>{track.artist}</p><span className="flex items-center gap-1">Added by {track.requestedAvatar ? <img src={track.requestedAvatar} alt="" className="w-4 h-4 rounded-full object-cover" /> : null} {track.requestedBy}</span></div><span className="track-duration">{formatTime(track.duration)}</span><IconControl label={`Remove ${track.title}`} onClick={() => handleRemove(track.originalIndex ?? 0)} className="remove-track"><X size={15} /></IconControl></div>)}{!queue.length && <div className="empty-queue"><ListMusic size={30} /><h3>A little quiet in here.</h3><p>No tracks in the queue.</p></div>}</div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-white" disabled={validCurrentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Previous</Button>
+                <span className="text-xs text-muted-foreground font-medium">Page {validCurrentPage} of {totalPages}</span>
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-white" disabled={validCurrentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+              </div>
+            )}
             <div className="queue-bottom"><ListMusic size={15} /><span>{queue.length} tracks in the queue</span><span className="queue-bottom-dot" /><span>Made for sharing</span></div>
           </section>
         </div>
-        <div className="session-band"><div className="voice-icon"><Radio size={19} /></div><div className="session-info"><strong>{summoned ? `Together in ${currentGuildName}` : `Waiting in ${currentGuildName}`}</strong><span>{summoned ? `${currentGuildName} · Listeners` : 'MusicBot is not in this channel'}</span></div><div className="session-status">{summoned ? <><span className="status-dot" />Connected</> : <Button size="sm" onClick={handleSummon}><Plus size={14} />Summon bot</Button>}</div><span className="session-divider" />{summoned && <Button variant="ghost" className="session-menu hover:text-red-400 hover:bg-red-500/10" style={{marginRight: '8px', color: '#ef4444'}} onClick={handleStop}><Square size={15} className="mr-1.5" fill="currentColor" />Stop Bot</Button>}{!summoned && <Button variant="ghost" className="session-menu" onClick={handleSummon}><Headphones size={15} />Join channel</Button>}</div>
+        <div className="session-band"><div className="voice-icon"><Radio size={19} /></div><div className="session-info"><strong>{summoned ? `Together in ${currentGuildName}` : `Waiting in ${currentGuildName}`}</strong><span>{summoned ? `${currentGuildName} · Listeners` : 'MusicBot is not in this channel'}</span></div><div className="session-status">{summoned ? <><span className="status-dot" />Connected</> : <Button size="sm" onClick={handleSummon}><Plus size={14} />Summon bot</Button>}</div><span className="session-divider" />{summoned && <Button variant="ghost" className="session-menu relative hover:text-red-400 hover:bg-red-500/10" style={{marginRight: '8px', color: '#ef4444'}} onClick={handleStop}><Square size={15} className="mr-1.5" fill="currentColor" />Stop Bot<span className="absolute -top-1.5 -right-1.5 text-[9px] font-medium bg-red-500/20 text-red-400 px-1 py-[1px] rounded pointer-events-none border border-red-500/20">{stopVotes}/{stopVotesReq || 1}</span></Button>}{!summoned && <Button variant="ghost" className="session-menu" onClick={handleSummon}><Headphones size={15} />Join channel</Button>}</div>
         <footer className="app-footer"><span>Music brings us together.</span><Button variant="ghost" size="sm" onClick={() => setDialog('help')}><CircleHelp size={14} />Need a hand?</Button></footer>
       </main>
 
