@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear } from '@/lib/api'
+import { MarqueeText } from '@/components/MarqueeText'
 
 import ocean from '@/assets/ocean-drive.jpg'
 import dunes from '@/assets/sundown.jpg'
@@ -315,7 +316,7 @@ function MusicRoom() {
           <section className="player-panel glass-surface" aria-label="Music player">
             <div className="section-topline"><div className="section-label"><span className={`equalizer ${playing && !stopped ? 'is-playing' : ''}`}><i /><i /><i /><i /></span>{stopped ? 'PLAYBACK STOPPED' : playing ? 'NOW PLAYING' : 'PAUSED'}</div><span className="source-tag"><span className="source-dot" /> Stream</span></div>
             <div className="artwork-stage"><img key={displayCurrent.id} className="album-art" src={displayCurrent.image} alt={`${displayCurrent.title} album artwork`} width={1024} height={1024} /><span className="album-caption">{displayCurrent.album}</span></div>
-            <div className="track-details"><div><h2>{displayCurrent.title}</h2><p>{displayCurrent.artist}</p></div></div>
+            <div className="track-details"><div className="min-w-0 w-full"><h2><MarqueeText text={displayCurrent.title} active={!stopped} /></h2><p><MarqueeText text={displayCurrent.artist} active={!stopped} /></p></div></div>
             {displayCurrent.requestedBy ? (
               <div className="track-context">
                 {(displayCurrent.requestedAvatar || (user && user.username === displayCurrent.requestedBy && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)) ? (
@@ -393,15 +394,25 @@ function MusicRoom() {
                     </Button>
                   </div>
                   <div className="queue-track-info">
-                    <h3 className="flex items-center gap-1.5">
-                      <span className="truncate">{track.title}</span>
+                    <h3 className="flex items-center gap-1.5 min-w-0">
+                      <MarqueeText
+                        text={track.title}
+                        className="flex-1 min-w-0"
+                        active={isCurrent || undefined}
+                        hoverOnly={!isCurrent}
+                      />
                       {isCurrent && (
                         <span className="now-playing-badge">
                           {playing ? 'NOW PLAYING' : 'PAUSED'}
                         </span>
                       )}
                     </h3>
-                    <p>{track.artist}</p>
+                    <MarqueeText
+                      text={track.artist}
+                      className="min-w-0 text-[11px] text-muted-foreground mt-0.5"
+                      active={isCurrent || undefined}
+                      hoverOnly={!isCurrent}
+                    />
                     <div className="queue-requester">
                       <span>Added by</span>
                       {(track.requestedAvatar || (user && user.username === track.requestedBy && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)) ? (
