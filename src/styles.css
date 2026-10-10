@@ -126,3 +126,15 @@ h1 { font-family: var(--font-display); font-size: 24px; font-weight: 600; line-h
 .marquee-container.is-marquee .marquee-content { animation: marquee-pingpong var(--marquee-dur, 6s) ease-in-out infinite; }
 @keyframes marquee-pingpong { 0%, 18% { transform: translateX(0); } 68%, 86% { transform: translateX(calc(-1 * var(--marquee-dist))); } 98%, 100% { transform: translateX(0); } }
 
+/* Real-time Synced Lyrics Styles */
+.lyrics-view { flex: 1; max-height: 350px; overflow-y: auto; overflow-x: hidden; padding: 24px 6px 36px; display: flex; flex-direction: column; gap: 14px; mask-image: linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%); }
+.lyrics-line { font-size: 14px; line-height: 1.55; font-weight: 500; color: var(--muted-foreground); opacity: 0.35; transition: opacity 0.25s ease, transform 0.25s ease, color 0.25s ease; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.lyrics-line:hover { opacity: 0.65; }
+.lyrics-line.is-active { color: var(--foreground); opacity: 1; font-size: 16px; font-weight: 600; transform: scale(1.02); transform-origin: left center; }
+.lyrics-word { display: inline-block; transition: color 0.12s ease, opacity 0.12s ease; opacity: 0.45; margin-right: 0.25em; }
+.lyrics-word.is-sung { color: var(--foreground); opacity: 1; }
+.lyrics-word.is-singing { color: var(--primary); opacity: 1; text-shadow: 0 0 10px var(--primary); }
+.lyrics-sync-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted-foreground); margin-top: 6px; }
+.lyrics-sync-controls { display: flex; align-items: center; gap: 4px; }
+
+

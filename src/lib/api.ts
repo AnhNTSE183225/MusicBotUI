@@ -154,3 +154,8 @@ export async function controlRemove(guildId: string, index: number) {
 export async function controlClear(guildId: string) {
     return await fetchApi(`/controls/${guildId}/clear`, { method: "POST" });
 }
+
+export async function getLyrics(guildId: string) {
+    return await fetchApi(`/lyrics/${guildId}`);
+}
+
