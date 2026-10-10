@@ -91,6 +91,7 @@ function MusicRoom() {
   const [userOffset, setUserOffset] = useState<number>(0)
   const activeLineRef = useRef<HTMLDivElement | null>(null)
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null)
+  const syncRef = useRef<{ basePos: number; syncTime: number }>({ basePos: 0, syncTime: performance.now() })
 
   useEffect(() => {
     if (queueIndex >= 0) {
@@ -104,9 +105,14 @@ function MusicRoom() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  // High-resolution position ticker anchored to performance.now() and audio frames
   useEffect(() => {
     if (!playing || stopped) return;
-    const timer = setInterval(() => setPosition(p => p + 1), 1000);
+    const timer = setInterval(() => {
+      const elapsed = (performance.now() - syncRef.current.syncTime) / 1000;
+      const currentPos = syncRef.current.basePos + elapsed;
+      setPosition(currentPos);
+    }, 100);
     return () => clearInterval(timer);
   }, [playing, stopped]);
 
@@ -229,12 +235,16 @@ function MusicRoom() {
                 requestedAvatar: state.current.requester_avatar || null
               });
               setStopped(false);
-              setPlaying(!state.is_paused);
-              setPosition(Math.floor(state.position || 0));
+              const isPaused = !!state.is_paused;
+              setPlaying(!isPaused);
+              const serverPos = typeof state.position === 'number' ? state.position : 0;
+              syncRef.current = { basePos: serverPos, syncTime: performance.now() };
+              setPosition(serverPos);
             } else {
               setCurrent(null);
               setStopped(true);
               setPlaying(false);
+              syncRef.current = { basePos: 0, syncTime: performance.now() };
               setPosition(0);
             }
             
@@ -329,12 +339,13 @@ function MusicRoom() {
           if (playing) {
               await controlPause(currentGuildId);
           } else {
+              syncRef.current = { basePos: position, syncTime: performance.now() };
               await controlResume(currentGuildId);
           }
       } catch(e: any) {
           setNotice(e.message || 'Action failed');
       }
-  }, [currentGuildId, playing]);
+  }, [currentGuildId, playing, position]);
   const handleLoop = useCallback(async () => {
       if (!currentGuildId) return;
       try {
