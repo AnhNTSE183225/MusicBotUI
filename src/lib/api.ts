@@ -73,16 +73,36 @@ export async function checkAuth() {
     }
 }
 
-export async function getGuilds() {
-    const data = await fetchApi("/voice_status");
-    // Format the response so that it aligns with what the UI expects for guilds
-    // The UI expects an array of guilds with id, name, and bot_connected
-    const guilds = data.sessions.map((s: any) => ({
-        id: s.guild_id,
-        name: s.guild_name,
-        bot_connected: s.bot_connected
-    }));
-    return { guilds };
+export interface GuildSession {
+    id: string;
+    name: string;
+    icon?: string | null;
+    channel_id?: string;
+    channel_name?: string;
+    bot_connected: boolean;
+    is_admin?: boolean;
+}
+
+export async function getGuilds(): Promise<{ guilds: GuildSession[] }> {
+    try {
+        const data = await fetchApi("/voice_status");
+        if (!data || !Array.isArray(data.sessions)) {
+            return { guilds: [] };
+        }
+        const guilds: GuildSession[] = data.sessions.map((s: any) => ({
+            id: String(s.guild_id),
+            name: s.guild_name || 'Server',
+            icon: s.guild_icon || null,
+            channel_id: s.channel_id ? String(s.channel_id) : undefined,
+            channel_name: s.channel_name || undefined,
+            bot_connected: Boolean(s.bot_connected),
+            is_admin: Boolean(s.is_admin)
+        }));
+        return { guilds };
+    } catch (e) {
+        console.error("Failed to fetch guilds voice status", e);
+        return { guilds: [] };
+    }
 }
 
 export async function getQueue(guildId: string) {

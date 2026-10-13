@@ -1,25 +1,27 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { AudioLines, ArrowUpRight, Check, ChevronDown, CircleHelp, FileText, Headphones, Heart, ListMusic, MoreHorizontal, Music2, Pause, Play, Plus, Radio, Repeat2, Settings2, SkipBack, SkipForward, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react'
+import { AudioLines, ArrowUpRight, Bug, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, ListMusic, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics } from '@/lib/api'
+import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, type GuildSession } from '@/lib/api'
 import { MarqueeText } from '@/components/MarqueeText'
 
 import ocean from '@/assets/ocean-drive.jpg'
 import dunes from '@/assets/sundown.jpg'
 import coast from '@/assets/coastline.jpg'
+import logoIcon from '@/assets/logo_icon.svg'
+import logoFull from '@/assets/logo_full.svg'
 
 export const Route = createFileRoute('/')({
   head: () => ({ meta: [
-    { title: 'MusicBot — Your shared listening room' },
-    { name: 'description', content: 'Your Discord listening room. An artwork-first MusicBot player with playback controls and a shared queue.' },
-    { property: 'og:title', content: 'MusicBot — Your shared listening room' },
-    { property: 'og:description', content: 'A beautiful space for the music you share on Discord.' },
+    { title: 'MusicBỏTúi — Your shared listening room' },
+    { name: 'description', content: 'Your Discord listening room. An artwork-first MusicBỏTúi player with playback controls and a shared queue.' },
+    { property: 'og:title', content: 'MusicBỏTúi — Your shared listening room' },
+    { property: 'og:description', content: 'A beautiful space for the music you share on Discord with MusicBỏTúi.' },
     { property: 'og:type', content: 'website' },
     { name: 'twitter:card', content: 'summary_large_image' },
   ] }),
@@ -58,8 +60,9 @@ const idleTrack: Track = {
 function MusicRoom() {
   const [user, setUser] = useState<any>(null)
   const [isAuthLoaded, setIsAuthLoaded] = useState(false)
-  const [guilds, setGuilds] = useState<any[]>([])
+  const [guilds, setGuilds] = useState<GuildSession[]>([])
   const [currentGuildId, setCurrentGuildId] = useState<string | null>(null)
+  const [isCheckingVoice, setIsCheckingVoice] = useState(false)
   
   const [current, setCurrent] = useState<Track | null>(null)
   const [queue, setQueue] = useState<Track[]>([])
@@ -68,7 +71,7 @@ function MusicRoom() {
   const [loop, setLoop] = useState(false)
   const [volume, setVolume] = useState(75)
   const [query, setQuery] = useState('')
-  const [dialog, setDialog] = useState<'connection' | 'help' | null>(null)
+  const [dialog, setDialog] = useState<'connection' | 'help' | 'contribution' | null>(null)
   const [notice, setNotice] = useState('')
   const [summoned, setSummoned] = useState(false)
   const [position, setPosition] = useState(0)
@@ -188,23 +191,79 @@ function MusicRoom() {
     }
   };
 
-    // Auth & Guilds
+  const refreshVoiceStatus = useCallback(async (manual = false) => {
+    if (manual) setIsCheckingVoice(true);
+    try {
+      const g = await getGuilds();
+      const list = g.guilds || [];
+      setGuilds(list);
+      if (list.length > 0) {
+        setCurrentGuildId((prev) => {
+          if (prev && list.some((item) => item.id === prev)) {
+            return prev;
+          }
+          return list[0].id;
+        });
+        const active = list.find((item) => item.id === (currentGuildId || list[0].id));
+        if (active) {
+          setSummoned(active.bot_connected);
+        }
+      } else {
+        setCurrentGuildId(null);
+        setSummoned(false);
+      }
+    } catch (e) {
+      console.error('Failed to check voice status:', e);
+    } finally {
+      if (manual) {
+        setTimeout(() => setIsCheckingVoice(false), 350);
+      }
+    }
+  }, [currentGuildId]);
+
+  // Auth & Guilds initial load
   useEffect(() => {
-    checkAuth().then(u => {
+    let isMounted = true;
+    checkAuth().then(async (u) => {
+      if (!isMounted) return;
       if (u) {
         setUser(u);
-        getGuilds().then(g => {
-          const list = g.guilds || [];
-          setGuilds(list);
-          if (list.length > 0) {
-            setCurrentGuildId(list[0].id);
-            setSummoned(list[0].bot_connected);
-          }
-        });
+        const g = await getGuilds();
+        if (!isMounted) return;
+        const list = g.guilds || [];
+        setGuilds(list);
+        if (list.length > 0) {
+          setCurrentGuildId(list[0].id);
+          setSummoned(list[0].bot_connected);
+        } else {
+          setCurrentGuildId(null);
+          setSummoned(false);
+        }
       }
       setIsAuthLoaded(true);
     });
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  // Poll voice status periodically and on window focus when user is logged in
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      refreshVoiceStatus();
+    }, 3500);
+
+    const handleFocus = () => {
+      refreshVoiceStatus();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user, refreshVoiceStatus]);
 
   // SSE connection
   useEffect(() => {
@@ -313,28 +372,33 @@ function MusicRoom() {
   const validCurrentPage = useMemo(() => Math.min(Math.max(1, currentPage), totalPages), [currentPage, totalPages]);
   const paginatedQueue = useMemo(() => queue.slice((validCurrentPage - 1) * ITEMS_PER_PAGE, validCurrentPage * ITEMS_PER_PAGE), [queue, validCurrentPage]);
   
-  const currentGuildName = useMemo(() => guilds.find(g => g.id === currentGuildId)?.name || 'The Listening Room', [guilds, currentGuildId]);
+  const isVoiceConnected = Boolean(user && guilds.length > 0 && currentGuildId);
+  const isLocked = !isAuthLoaded || !user || !isVoiceConnected;
+
+  const currentGuild = useMemo(() => guilds.find(g => g.id === currentGuildId), [guilds, currentGuildId]);
+  const currentGuildName = useMemo(() => currentGuild?.name || 'The Listening Room', [currentGuild]);
+  const currentVoiceChannelName = useMemo(() => currentGuild?.channel_name || 'voice', [currentGuild]);
 
   const handleSummon = useCallback(async () => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       try {
           await controlJoin(currentGuildId);
           setSummoned(true);
       } catch(e) {
           setNotice('Failed to join channel');
       }
-  }, [currentGuildId]);
+  }, [currentGuildId, isVoiceConnected]);
 
   const handleSkip = useCallback(async () => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       try { await controlSkip(currentGuildId); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }, [currentGuildId]);
+  }, [currentGuildId, isVoiceConnected]);
   const handleStop = useCallback(async () => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       try { await controlStop(currentGuildId); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }, [currentGuildId]);
+  }, [currentGuildId, isVoiceConnected]);
   const handleTogglePlay = useCallback(async () => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       try {
           if (playing) {
               await controlPause(currentGuildId);
@@ -345,28 +409,28 @@ function MusicRoom() {
       } catch(e: any) {
           setNotice(e.message || 'Action failed');
       }
-  }, [currentGuildId, playing, position]);
+  }, [currentGuildId, isVoiceConnected, playing, position]);
   const handleLoop = useCallback(async () => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       try {
           await controlLoop(currentGuildId);
       } catch(e: any) {
           setNotice(e.message || 'Action failed');
       }
-  }, [currentGuildId]);
+  }, [currentGuildId, isVoiceConnected]);
   const handleVolume = useCallback(async (val: number) => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       setVolume(val);
       try {
           await controlVolume(currentGuildId, val);
       } catch(e: any) {
           setNotice(e.message || 'Action failed');
       }
-  }, [currentGuildId]);
+  }, [currentGuildId, isVoiceConnected]);
   
   const handleAddSong = useCallback(async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!query.trim() || !currentGuildId) return;
+      if (!query.trim() || !currentGuildId || !isVoiceConnected) return;
       const url = query.trim();
       setQuery('');
       try {
@@ -375,42 +439,120 @@ function MusicRoom() {
       } catch(e) {
           setNotice('Failed to add song');
       }
-  }, [currentGuildId, query]);
+  }, [currentGuildId, isVoiceConnected, query]);
 
   const handleSkipTo = useCallback(async (index: number) => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       try { await controlSkipTo(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }, [currentGuildId]);
+  }, [currentGuildId, isVoiceConnected]);
 
   const handleRemove = useCallback(async (index: number) => {
-      if (!currentGuildId) return;
+      if (!currentGuildId || !isVoiceConnected) return;
       try { await controlRemove(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
-  }, [currentGuildId]);
+  }, [currentGuildId, isVoiceConnected]);
 
   return <TooltipProvider delayDuration={200}>
     <div className="music-app">
       <div className="ambient-art" aria-hidden="true"><img src={displayCurrent.image} alt="" /></div>
       <div className="ambient-shade" aria-hidden="true" />
       <header className="app-header">
-        <a href="/" className="brand"><span className="brand-mark"><AudioLines /></span><span>musicbot<span className="brand-dot">.</span></span></a>
-        <div className="header-room"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="server-select"><span className="server-symbol"><Headphones size={15} /></span>{currentGuildName}<ChevronDown size={14} /></Button></DropdownMenuTrigger><DropdownMenuContent align="center"><DropdownMenuLabel>Your servers</DropdownMenuLabel>{guilds.map(g => <DropdownMenuItem key={g.id} onClick={() => {setCurrentGuildId(g.id); setSummoned(g.bot_connected)}}><Headphones />{g.name}{g.id === currentGuildId && <Check className="ml-auto" />}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu><span className="header-divider" /><span className="header-channel"><Radio size={14} /> lounge</span></div>
+        <a href="/" className="brand" aria-label="MusicBỏTúi Home">
+          <img src={logoIcon} alt="MusicBỏTúi Logo" className="brand-logo-img" />
+          <span className="logo-text">
+            <span className="music">Music</span>
+            <span className="botui">BỏTúi</span>
+          </span>
+        </a>
+        <div className="header-room">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="server-select" disabled={!isVoiceConnected}>
+                <span className="server-symbol"><Headphones size={15} /></span>
+                {isVoiceConnected ? currentGuildName : 'No voice channel'}
+                <ChevronDown size={14} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center">
+              <DropdownMenuLabel>Your servers</DropdownMenuLabel>
+              {guilds.map(g => (
+                <DropdownMenuItem key={g.id} onClick={() => { setCurrentGuildId(g.id); setSummoned(g.bot_connected); }}>
+                  <Headphones />
+                  {g.name}
+                  {g.id === currentGuildId && <Check className="ml-auto" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <span className="header-divider" />
+          <span className="header-channel">
+            <Radio size={14} /> {isVoiceConnected ? currentVoiceChannelName : 'offline'}
+          </span>
+        </div>
         <div className="header-actions">
-           {!isAuthLoaded ? null : !user ? <Button variant="secondary" onClick={() => window.location.href = getLoginUrl()}>Login with Discord</Button> : (
-            <><span className="preview-tag">Live Session</span>
-            <IconControl label="Connection settings" onClick={() => setDialog('connection')}><Settings2 /></IconControl>
-            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="user-avatar p-0 overflow-hidden" aria-label="Account menu">{user.avatar ? <img src={`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`} alt="" className="w-full h-full object-cover rounded-full" /> : (user.username.charAt(0).toUpperCase())}</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Account · {user.username}</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuItem onClick={() => {localStorage.removeItem('auth_token'); window.location.reload()}}>Logout</DropdownMenuItem></DropdownMenuContent></DropdownMenu></>
+           <Tooltip>
+             <TooltipTrigger asChild>
+               <Button
+                 variant="ghost"
+                 size="icon"
+                 aria-label="Contribute or report a bug"
+                 onClick={() => setDialog('contribution')}
+                 className="text-muted-foreground hover:text-foreground"
+               >
+                 <Github size={17} />
+               </Button>
+             </TooltipTrigger>
+             <TooltipContent>Contribute / Report Bug</TooltipContent>
+           </Tooltip>
+           {!isAuthLoaded ? null : !user ? (
+             <Button variant="secondary" onClick={() => window.location.href = getLoginUrl()}>Login with Discord</Button>
+           ) : (
+             <>
+               {!isVoiceConnected ? (
+                 <span className="preview-tag text-amber-400/90 border-amber-400/30">Voice channel required</span>
+               ) : (
+                 <span className="preview-tag">Live Session</span>
+               )}
+               <IconControl label="Connection settings" onClick={() => setDialog('connection')} disabled={!isVoiceConnected}><Settings2 /></IconControl>
+               <DropdownMenu>
+                 <DropdownMenuTrigger asChild>
+                   <Button variant="ghost" size="icon" className="user-avatar p-0 overflow-hidden" aria-label="Account menu">
+                     {user.avatar ? (
+                       <img src={`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`} alt="" className="w-full h-full object-cover rounded-full" />
+                     ) : (
+                       user.username.charAt(0).toUpperCase()
+                     )}
+                   </Button>
+                 </DropdownMenuTrigger>
+                 <DropdownMenuContent align="end">
+                   <DropdownMenuLabel>Account · {user.username}</DropdownMenuLabel>
+                   <DropdownMenuSeparator />
+                   <DropdownMenuItem onClick={() => setDialog('contribution')}>
+                     <Github size={14} className="mr-1.5" /> Contribute / Report Bug
+                   </DropdownMenuItem>
+                   <DropdownMenuSeparator />
+                   <DropdownMenuItem onClick={() => { localStorage.removeItem('auth_token'); window.location.reload(); }}>
+                     Logout
+                   </DropdownMenuItem>
+                 </DropdownMenuContent>
+               </DropdownMenu>
+             </>
            )}
         </div>
       </header>
 
-      <main className="room-main" style={(!user && isAuthLoaded) ? { filter: 'blur(12px)', pointerEvents: 'none', userSelect: 'none' } : {}}>
+      <main
+        className="room-main"
+        style={isLocked ? { filter: 'blur(12px)', pointerEvents: 'none', userSelect: 'none' } : undefined}
+        inert={isLocked ? true : undefined}
+        aria-hidden={isLocked}
+      >
         <div className="page-intro"><div><div className="eyebrow">GOOD MUSIC. BETTER COMPANY.</div><h1>Your listening room<span className="heading-dot">.</span></h1></div></div>
 
         <div className="music-layout">
           <section className="player-panel glass-surface" aria-label="Music player">
             <div className="section-topline"><div className="section-label"><span className={`equalizer ${playing && !stopped ? 'is-playing' : ''}`}><i /><i /><i /><i /></span>{stopped ? 'PLAYBACK STOPPED' : playing ? 'NOW PLAYING' : 'PAUSED'}</div><span className="source-tag"><span className="source-dot" /> Stream</span></div>
             <div className="artwork-stage"><img key={displayCurrent.id} className="album-art" src={displayCurrent.image} alt={`${displayCurrent.title} album artwork`} width={1024} height={1024} /><span className="album-caption">{displayCurrent.album}</span></div>
-            <div className="track-details"><div className="min-w-0 w-full"><h2><MarqueeText text={displayCurrent.title} active={!stopped} /></h2><p><MarqueeText text={displayCurrent.artist} active={!stopped} /></p></div></div>
+            <div className="track-details"><div className="min-w-0 w-full"><h2><MarqueeText text={displayCurrent.title} active={!stopped} /></h2><div className="track-artist"><MarqueeText text={displayCurrent.artist} active={!stopped} /></div></div></div>
             {displayCurrent.requestedBy ? (
               <div className="track-context">
                 {(displayCurrent.requestedAvatar || (user && user.username === displayCurrent.requestedBy && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)) ? (
@@ -661,31 +803,346 @@ function MusicRoom() {
             )}
           </section>
         </div>
-        <div className="session-band"><div className="voice-icon"><Radio size={19} /></div><div className="session-info"><strong>{summoned ? `Together in ${currentGuildName}` : `Waiting in ${currentGuildName}`}</strong><span>{summoned ? `${currentGuildName} · Listeners` : 'MusicBot is not in this channel'}</span></div><div className="session-status">{summoned ? <><span className="status-dot" />Connected</> : <Button size="sm" onClick={handleSummon}><Plus size={14} />Summon bot</Button>}</div><span className="session-divider" />{summoned && <Button variant="ghost" className="session-menu relative hover:text-red-400 hover:bg-red-500/10" style={{marginRight: '8px', color: '#ef4444'}} onClick={handleStop}><Square size={15} className="mr-1.5" fill="currentColor" />Stop Bot<span className="absolute -top-1.5 -right-1.5 text-[10px] font-semibold bg-red-500/30 text-red-300 px-1.5 py-[1px] rounded pointer-events-none border border-red-500/30">{stopVotes}/{stopVotesReq || 1}</span></Button>}{!summoned && <Button variant="ghost" className="session-menu" onClick={handleSummon}><Headphones size={15} />Join channel</Button>}</div>
-        <footer className="app-footer"><span>Music brings us together.</span><Button variant="ghost" size="sm" onClick={() => setDialog('help')}><CircleHelp size={14} />Need a hand?</Button></footer>
+        <div className="session-band">
+          <div className="voice-icon"><Radio size={19} /></div>
+          <div className="session-info">
+            <strong>{summoned ? `Together in ${currentGuildName}` : `Waiting in ${currentGuildName}`}</strong>
+            <span>{summoned ? `${currentGuildName} · #${currentVoiceChannelName}` : 'MusicBỏTúi is not in this channel'}</span>
+          </div>
+          <div className="session-status">
+            {summoned ? (
+              <><span className="status-dot" />Connected</>
+            ) : (
+              <Button size="sm" onClick={handleSummon} disabled={!isVoiceConnected}>
+                <Plus size={14} />Summon bot
+              </Button>
+            )}
+          </div>
+          <span className="session-divider" />
+          {summoned && (
+            <Button
+              variant="ghost"
+              className="session-menu relative hover:text-red-400 hover:bg-red-500/10"
+              style={{marginRight: '8px', color: '#ef4444'}}
+              onClick={handleStop}
+              disabled={!isVoiceConnected}
+            >
+              <Square size={15} className="mr-1.5" fill="currentColor" />
+              Stop Bot
+              <span className="absolute -top-1.5 -right-1.5 text-[10px] font-semibold bg-red-500/30 text-red-300 px-1.5 py-[1px] rounded pointer-events-none border border-red-500/30">
+                {stopVotes}/{stopVotesReq || 1}
+              </span>
+            </Button>
+          )}
+          {!summoned && (
+            <Button
+              variant="ghost"
+              className="session-menu"
+              onClick={handleSummon}
+              disabled={!isVoiceConnected}
+            >
+              <Headphones size={15} />Join channel
+            </Button>
+          )}
+        </div>
+
+        <section className="contribution-section glass-surface" aria-label="Open source contributions and bug reporting">
+          <div className="contribution-header">
+            <div className="flex items-center gap-3">
+              <div className="contribution-icon-badge">
+                <Github size={18} />
+              </div>
+              <div>
+                <h2 className="contribution-title">Want to contribute or report a bug?</h2>
+                <p className="contribution-subtitle">
+                  MusicBỏTúi is open source! Have ideas, found an issue, or want to contribute code? We welcome all feedback and pull requests.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="contribution-grid">
+            <div className="contribution-card">
+              <div className="contribution-card-header">
+                <div className="flex items-center justify-between">
+                  <span className="contribution-badge">Frontend UI</span>
+                  <a
+                    href="https://github.com/AnhNTSE183225/MusicBotUI"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="contribution-repo-link"
+                  >
+                    AnhNTSE183225/MusicBotUI <ArrowUpRight size={13} />
+                  </a>
+                </div>
+                <h3>Web Interface (MusicBỏTúi)</h3>
+                <p>
+                  React 19 web app with real-time synchronized lyrics, player controls, and queue management.
+                </p>
+              </div>
+              <div className="contribution-card-actions">
+                <Button variant="outline" size="sm" asChild className="contribution-btn">
+                  <a href="https://github.com/AnhNTSE183225/MusicBotUI" target="_blank" rel="noopener noreferrer">
+                    <Github size={14} className="mr-1.5" />
+                    Contribute on UI
+                  </a>
+                </Button>
+                <Button variant="ghost" size="sm" asChild className="contribution-btn text-muted-foreground hover:text-foreground">
+                  <a href="https://github.com/AnhNTSE183225/MusicBotUI/issues" target="_blank" rel="noopener noreferrer">
+                    <Bug size={14} className="mr-1.5 text-amber-400" />
+                    Report UI Bug
+                  </a>
+                </Button>
+              </div>
+            </div>
+
+            <div className="contribution-card">
+              <div className="contribution-card-header">
+                <div className="flex items-center justify-between">
+                  <span className="contribution-badge">Backend Bot</span>
+                  <a
+                    href="https://github.com/AnhNTSE183225/music-bot"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="contribution-repo-link"
+                  >
+                    AnhNTSE183225/music-bot <ArrowUpRight size={13} />
+                  </a>
+                </div>
+                <h3>Discord Bot & API (MusicBỏTúi)</h3>
+                <p>
+                  Python bot with discord.py, FastAPI endpoints, voice streaming, queue orchestrations, and skip voting.
+                </p>
+              </div>
+              <div className="contribution-card-actions">
+                <Button variant="outline" size="sm" asChild className="contribution-btn">
+                  <a href="https://github.com/AnhNTSE183225/music-bot" target="_blank" rel="noopener noreferrer">
+                    <Github size={14} className="mr-1.5" />
+                    Contribute on Backend
+                  </a>
+                </Button>
+                <Button variant="ghost" size="sm" asChild className="contribution-btn text-muted-foreground hover:text-foreground">
+                  <a href="https://github.com/AnhNTSE183225/music-bot/issues" target="_blank" rel="noopener noreferrer">
+                    <Bug size={14} className="mr-1.5 text-amber-400" />
+                    Report Bot Bug
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <footer className="app-footer">
+          <span>Music brings us together.</span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setDialog('contribution')}>
+              <Github size={13} className="mr-1" />Contribute & Bugs
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setDialog('help')}>
+              <CircleHelp size={13} className="mr-1" />Need a hand?
+            </Button>
+          </div>
+        </footer>
       </main>
 
-      {!user && isAuthLoaded && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/40">
-          <div className="max-w-md w-full mx-4 p-8 text-center glass-surface flex flex-col items-center gap-6 rounded-2xl border border-white/10 shadow-2xl">
-            <div className="bg-primary/20 p-4 rounded-full">
-              <AudioLines className="w-10 h-10 text-primary" />
+      {/* Overlay: Not logged in */}
+      {isAuthLoaded && !user && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="max-w-md w-full p-8 text-center glass-surface flex flex-col items-center gap-6 rounded-2xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center gap-2.5">
+              <img src={logoIcon} alt="MusicBỏTúi Logo" className="w-16 h-16 object-contain filter drop-shadow-[0_4px_16px_rgba(0,230,118,0.35)]" />
+              <div className="logo-text text-2xl pt-1">
+                <span className="music">Music</span>
+                <span className="botui">BỏTúi</span>
+              </div>
             </div>
             <div className="space-y-2">
-              <h2 className="text-2xl font-semibold tracking-tight">Sign in to listen</h2>
+              <h2 className="text-xl font-semibold tracking-tight">Sign in to listen</h2>
               <p className="text-muted-foreground text-sm">
-                You need to connect your Discord account to access the listening room, view the shared queue, and control playback.
+                Connect your Discord account to access your listening room, view the shared queue, and control MusicBỏTúi playback.
               </p>
             </div>
             <Button size="lg" className="w-full font-semibold" onClick={() => window.location.href = getLoginUrl()}>
               Login with Discord
             </Button>
+            <div className="w-full border-t border-white/10 pt-4 flex flex-col items-center gap-2 text-xs text-muted-foreground">
+              <span>Want to contribute or report a bug?</span>
+              <div className="flex items-center gap-4 text-foreground/80 font-medium">
+                <a
+                  href="https://github.com/AnhNTSE183225/MusicBotUI"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors inline-flex items-center gap-1"
+                >
+                  UI GitHub <ArrowUpRight size={12} />
+                </a>
+                <span>·</span>
+                <a
+                  href="https://github.com/AnhNTSE183225/music-bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors inline-flex items-center gap-1"
+                >
+                  Backend GitHub <ArrowUpRight size={12} />
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Overlay: Logged in but not in a voice channel */}
+      {isAuthLoaded && user && !isVoiceConnected && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="max-w-md w-full p-8 text-center glass-surface flex flex-col items-center gap-6 rounded-2xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center gap-2.5">
+              <img src={logoIcon} alt="MusicBỏTúi Logo" className="w-16 h-16 object-contain filter drop-shadow-[0_4px_16px_rgba(0,230,118,0.35)]" />
+              <div className="logo-text text-2xl pt-1">
+                <span className="music">Music</span>
+                <span className="botui">BỏTúi</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold tracking-tight">Join a voice channel</h2>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                You are signed in as <strong className="text-foreground">{user.username}</strong>, but you are not currently in a voice channel in a Discord server where MusicBỏTúi is present.
+              </p>
+              <p className="text-muted-foreground text-xs">
+                Hop into any voice channel in Discord so MusicBỏTúi can stream music, sync lyrics, and manage the queue.
+              </p>
+            </div>
+
+            <div className="w-full flex flex-col gap-2.5 pt-1">
+              <Button
+                size="lg"
+                className="w-full font-semibold flex items-center justify-center gap-2"
+                onClick={() => refreshVoiceStatus(true)}
+                disabled={isCheckingVoice}
+              >
+                <RefreshCw className={`w-4 h-4 ${isCheckingVoice ? 'animate-spin' : ''}`} />
+                {isCheckingVoice ? 'Checking channel status...' : "I've joined a voice channel"}
+              </Button>
+              <div className="flex items-center justify-between text-xs text-muted-foreground px-1 pt-1">
+                <span>Wrong Discord account?</span>
+                <button
+                  type="button"
+                  className="text-primary hover:underline font-medium cursor-pointer"
+                  onClick={() => { localStorage.removeItem('auth_token'); window.location.reload(); }}
+                >
+                  Log out
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full border-t border-white/10 pt-4 flex flex-col items-center gap-2 text-xs text-muted-foreground">
+              <span>Want to contribute or report a bug?</span>
+              <div className="flex items-center gap-4 text-foreground/80 font-medium">
+                <a
+                  href="https://github.com/AnhNTSE183225/MusicBotUI"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors inline-flex items-center gap-1"
+                >
+                  UI GitHub <ArrowUpRight size={12} />
+                </a>
+                <span>·</span>
+                <a
+                  href="https://github.com/AnhNTSE183225/music-bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors inline-flex items-center gap-1"
+                >
+                  Backend GitHub <ArrowUpRight size={12} />
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {notice && <div className="notice" role="status">{notice}<Button variant="ghost" size="icon" aria-label="Dismiss notification" onClick={() => setNotice('')}><X /></Button></div>}
-      <Dialog open={dialog !== null} onOpenChange={open => {if (!open) setDialog(null)}}><DialogContent className="connection-dialog"><DialogHeader><div className="dialog-icon"><AudioLines size={26} /></div><DialogTitle>{dialog === 'help' ? 'Your shared listening room' : 'Connect your MusicBot'}</DialogTitle><DialogDescription>{dialog === 'help' ? 'This is a live session connected to your Discord bot.' : 'You are currently connected to Discord.'}</DialogDescription></DialogHeader><div className="connection-detail"><span>Discord connection</span><span className="text-muted-foreground">Configured</span></div><Button onClick={() => setDialog(null)}>Back to the music</Button></DialogContent></Dialog>
+      <Dialog open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null); }}>
+        {dialog === 'contribution' ? (
+          <DialogContent className="connection-dialog max-w-lg">
+            <DialogHeader>
+              <div className="dialog-icon flex items-center gap-2">
+                <img src={logoIcon} alt="MusicBỏTúi" className="w-8 h-8 object-contain" />
+              </div>
+              <DialogTitle>Contribute to MusicBỏTúi & Report Bugs</DialogTitle>
+              <DialogDescription>
+                MusicBỏTúi is open source! Have an idea, found an issue, or want to build new features? We'd love your contributions.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2 text-left">
+              <div className="p-3.5 rounded-lg border border-border bg-card/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">Frontend UI</span>
+                  <a href="https://github.com/AnhNTSE183225/MusicBotUI" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+                    AnhNTSE183225/MusicBotUI <ArrowUpRight size={12} />
+                  </a>
+                </div>
+                <p className="text-xs text-muted-foreground">React 19 web app with synchronized lyrics, playback controls, and queue.</p>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" size="sm" asChild className="h-7 text-xs">
+                    <a href="https://github.com/AnhNTSE183225/MusicBotUI" target="_blank" rel="noopener noreferrer">
+                      <Github size={13} className="mr-1" /> View Repo
+                    </a>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild className="h-7 text-xs text-amber-400 hover:text-amber-300">
+                    <a href="https://github.com/AnhNTSE183225/MusicBotUI/issues" target="_blank" rel="noopener noreferrer">
+                      <Bug size={13} className="mr-1" /> Report UI Bug
+                    </a>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-lg border border-border bg-card/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">Backend Bot</span>
+                  <a href="https://github.com/AnhNTSE183225/music-bot" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+                    AnhNTSE183225/music-bot <ArrowUpRight size={12} />
+                  </a>
+                </div>
+                <p className="text-xs text-muted-foreground">Discord bot voice player, yt-dlp audio streaming, FastAPI REST endpoints.</p>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" size="sm" asChild className="h-7 text-xs">
+                    <a href="https://github.com/AnhNTSE183225/music-bot" target="_blank" rel="noopener noreferrer">
+                      <Github size={13} className="mr-1" /> View Repo
+                    </a>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild className="h-7 text-xs text-amber-400 hover:text-amber-300">
+                    <a href="https://github.com/AnhNTSE183225/music-bot/issues" target="_blank" rel="noopener noreferrer">
+                      <Bug size={13} className="mr-1" /> Report Bot Bug
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <Button onClick={() => setDialog(null)}>Close</Button>
+          </DialogContent>
+        ) : (
+          <DialogContent className="connection-dialog">
+            <DialogHeader>
+              <div className="dialog-icon flex items-center gap-2">
+                <img src={logoIcon} alt="MusicBỏTúi" className="w-8 h-8 object-contain" />
+              </div>
+              <DialogTitle>{dialog === 'help' ? 'Your shared listening room' : 'Connect MusicBỏTúi'}</DialogTitle>
+              <DialogDescription>{dialog === 'help' ? 'This is a live session connected to your Discord bot.' : 'You are currently connected to Discord with MusicBỏTúi.'}</DialogDescription>
+            </DialogHeader>
+            <div className="connection-detail">
+              <span>Discord connection</span>
+              <span className="text-muted-foreground">{isVoiceConnected ? 'Connected to voice' : 'Not in voice channel'}</span>
+            </div>
+            <div className="connection-detail">
+              <span>Want to contribute or report a bug?</span>
+              <Button variant="link" size="sm" className="h-auto p-0 text-primary" onClick={() => setDialog('contribution')}>
+                GitHub Repositories
+              </Button>
+            </div>
+            <Button onClick={() => setDialog(null)}>Back to the music</Button>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   </TooltipProvider>
 }

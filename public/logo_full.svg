@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1100" width="100%" height="100%">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="eqGradFull" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#00D26A" />
+      <stop offset="60%" stop-color="#1ED760" />
+      <stop offset="100%" stop-color="#55FF9E" />
+    </linearGradient>
+
+    <linearGradient id="pocketBodyFull" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#283238" />
+      <stop offset="35%" stop-color="#1E262B" />
+      <stop offset="100%" stop-color="#12181C" />
+    </linearGradient>
+
+    <linearGradient id="pocketRimFull" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3A464D" />
+      <stop offset="100%" stop-color="#222B30" />
+    </linearGradient>
+
+    <linearGradient id="rivetGradFull" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#69F0AE" />
+      <stop offset="50%" stop-color="#00C853" />
+      <stop offset="100%" stop-color="#007E33" />
+    </linearGradient>
+
+    <filter id="neonGlowFull" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="9" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="pocketShadowFull" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+    <style>
+      .logo-text-primary { fill: #FFFFFF; }
+      .logo-text-accent { fill: #00E676; }
+    </style>
+  </defs>
+
+  <!-- Icon Group Shifted into position -->
+  <g transform="translate(100, 30)">
+    <!-- Musical Notes (Spaced out for breathing room) -->
+    <g filter="url(#neonGlowFull)">
+      <!-- Left Note -->
+      <g transform="translate(155, 205) rotate(-16)">
+        <ellipse cx="25" cy="55" rx="19" ry="14" fill="#1ED760" transform="rotate(-20 25 55)"/>
+        <rect x="36" y="8" width="8" height="48" rx="4" fill="#1ED760" />
+        <path d="M44 8 C 58 10, 68 22, 66 38 C 64 34, 56 22, 44 20 Z" fill="#1ED760" />
+      </g>
+
+      <!-- Right Note -->
+      <g transform="translate(615, 195) rotate(14)">
+        <ellipse cx="25" cy="55" rx="19" ry="14" fill="#1ED760" transform="rotate(-20 25 55)"/>
+        <rect x="36" y="8" width="8" height="48" rx="4" fill="#1ED760" />
+        <path d="M44 8 C 58 10, 68 22, 66 38 C 64 34, 56 22, 44 20 Z" fill="#1ED760" />
+      </g>
+    </g>
+
+    <!-- Equalizer Bars -->
+    <g filter="url(#neonGlowFull)">
+      <rect x="250" y="270" width="34" height="150" rx="17" fill="url(#eqGradFull)" />
+      <rect x="300" y="225" width="34" height="195" rx="17" fill="url(#eqGradFull)" />
+      <rect x="350" y="180" width="34" height="240" rx="17" fill="url(#eqGradFull)" />
+      <rect x="400" y="115" width="34" height="305" rx="17" fill="url(#eqGradFull)" />
+      <rect x="450" y="180" width="34" height="240" rx="17" fill="url(#eqGradFull)" />
+      <rect x="500" y="225" width="34" height="195" rx="17" fill="url(#eqGradFull)" />
+      <rect x="550" y="270" width="34" height="150" rx="17" fill="url(#eqGradFull)" />
+    </g>
+
+    <!-- Pocket -->
+    <g filter="url(#pocketShadowFull)">
+      <path d="M 205 350
+               C 320 375, 480 375, 595 350
+               L 570 590
+               C 565 640, 520 675, 470 695
+               L 415 715
+               C 405 718, 395 718, 385 715
+               L 330 695
+               C 280 675, 235 640, 230 590
+               Z"
+            fill="url(#pocketBodyFull)" />
+
+      <path d="M 205 350
+               C 320 375, 480 375, 595 350
+               L 592 375
+               C 480 400, 320 400, 208 375
+               Z"
+            fill="url(#pocketRimFull)" />
+
+      <path d="M 235 395
+               C 330 415, 470 415, 565 395
+               L 545 580
+               C 540 620, 500 650, 460 668
+               L 410 686
+               C 403 689, 397 689, 390 686
+               L 340 668
+               C 300 650, 260 620, 255 580
+               Z"
+            fill="none"
+            stroke="#00E676"
+            stroke-width="5"
+            stroke-dasharray="11 9"
+            stroke-linecap="round" />
+
+      <circle cx="230" cy="385" r="10" fill="url(#rivetGradFull)" stroke="#11181C" stroke-width="2"/>
+      <circle cx="570" cy="385" r="10" fill="url(#rivetGradFull)" stroke="#11181C" stroke-width="2"/>
+    </g>
+  </g>
+
+  <!-- Typography: MusicBỏTúi -->
+  <g style="font-family: 'Outfit', 'Inter', 'Liberation Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 800; font-size: 130px; letter-spacing: -2px;">
+    <!-- 'Music' in sleek white -->
+    <text x="500" y="930" text-anchor="end" fill="#FFFFFF" class="logo-text-primary" dx="-5">Music</text>
+    <!-- 'BỏTúi' in vibrant emerald accent -->
+    <text x="500" y="930" text-anchor="start" fill="#00E676" class="logo-text-accent" dx="5">BỏTúi</text>
+  </g>
+</svg>
