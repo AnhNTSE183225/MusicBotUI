@@ -575,7 +575,8 @@ function MusicRoom() {
     setAiSuggestions([]);
     try {
       const res = await aiSuggest(currentGuildId, aiSearchPrompt.trim(), aiCount);
-      setAiSuggestions(res.songs || []);
+      const returnedSongs = (res.songs || []).slice(0, Math.max(1, aiCount));
+      setAiSuggestions(returnedSongs);
     } catch (err: any) {
       setAiError(err?.message || 'AI service unavailable. Check GEMINI_API_KEY.');
     } finally {

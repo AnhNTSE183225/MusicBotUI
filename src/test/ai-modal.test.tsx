@@ -47,6 +47,7 @@ describe('AI Auto-Queue UI & Fixes', () => {
     globalThis.EventSource = MockEventSource
 
     vi.mocked(api.checkAuth).mockResolvedValue({ id: '12345', username: 'TestUser', avatar: null })
+    vi.mocked(api.getAIAutoQueue).mockResolvedValue({ enabled: false, prompt: '', count: 5, threshold: 2 })
     vi.mocked(api.getGuilds).mockResolvedValue({
       guilds: [
         {
@@ -192,4 +193,51 @@ describe('AI Auto-Queue UI & Fixes', () => {
       )
     })
   })
+
+  it('limits preview suggestions to exactly the configured aiCount (5 songs when configured 5)', async () => {
+    // Backend returns 8 songs, but configured count is 5
+    const mockSongs: api.AISong[] = Array.from({ length: 8 }, (_, i) => ({
+      title: `Song Number ${i + 1}`,
+      artist: `Artist ${i + 1}`,
+      duration: 180,
+      url: `https://www.youtube.com/watch?v=song_${i + 1}`,
+      thumbnail: `https://i.ytimg.com/vi/song_${i + 1}/hqdefault.jpg`,
+    }))
+
+    vi.mocked(api.aiSuggest).mockResolvedValue({
+      prompt: 'chill beats',
+      songs: mockSongs,
+    })
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
+    })
+
+    // Open AI Dialog
+    const settingsBtn = screen.getByRole('button', { name: /AI Auto-Queue/i })
+    fireEvent.click(settingsBtn)
+
+    // Ensure count input is 5
+    const countInput = screen.getByLabelText(/Songs to preview/i) as HTMLInputElement
+    expect(countInput.value).toBe('5')
+
+    // Enter prompt and click find
+    const promptInput = screen.getByPlaceholderText(/lo-fi chill buổi tối/i)
+    fireEvent.change(promptInput, { target: { value: 'chill beats' } })
+    const findBtn = screen.getByRole('button', { name: /find songs/i })
+    fireEvent.click(findBtn)
+
+    // Expect exactly 5 suggestions displayed, not 8
+    await waitFor(() => {
+      expect(screen.getByText('5 suggestions')).toBeInTheDocument()
+      expect(screen.getByText('Song Number 1')).toBeInTheDocument()
+      expect(screen.getByText('Song Number 5')).toBeInTheDocument()
+      expect(screen.queryByText('Song Number 6')).not.toBeInTheDocument()
+      expect(screen.queryByText('Song Number 8')).not.toBeInTheDocument()
+    })
+  })
 })
+
