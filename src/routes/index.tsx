@@ -1213,7 +1213,7 @@ function MusicRoom() {
 
             {activeTab === 'queue' ? (
               <div className="flex-1 flex flex-col min-h-0">
-                <div className="queue-list">{paginatedQueue.map((track) => {
+                <div className={`queue-list ${totalPages > 1 ? 'has-pagination' : ''}`}>{paginatedQueue.map((track) => {
                   const isCurrent = !stopped && (queueIndex >= 0 ? track.originalIndex === queueIndex : (Boolean(current) && track.title === current?.title));
                   return (
                     <div className={`queue-row ${isCurrent ? 'is-current' : ''}`} key={track.id}>
@@ -1300,10 +1300,10 @@ function MusicRoom() {
                   );
                 })}{!queue.length && <div className="empty-queue"><ListMusic size={30} /><h3>A little quiet in here.</h3><p>No tracks in the queue.</p></div>}</div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
-                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-white" disabled={validCurrentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Previous</Button>
+                  <div className="queue-pagination">
+                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" disabled={validCurrentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Previous</Button>
                     <span className="text-xs text-muted-foreground font-medium">Page {validCurrentPage} of {totalPages}</span>
-                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-white" disabled={validCurrentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" disabled={validCurrentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Next</Button>
                   </div>
                 )}
                 <div className="queue-bottom"><ListMusic size={15} /><span>{queue.length} tracks in the queue</span><span className="queue-bottom-dot" /><span>Made for sharing</span></div>
