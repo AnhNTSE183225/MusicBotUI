@@ -179,3 +179,62 @@ export async function getLyrics(guildId: string) {
     return await fetchApi(`/lyrics/${guildId}`);
 }
 
+// ---------------------------------------------------------------------------
+// AI Auto-Queue API
+// ---------------------------------------------------------------------------
+
+/** A single AI-suggested song returned from the suggest endpoint. */
+export interface AISong {
+    title: string;
+    artist: string;
+    duration: number;
+    url: string;
+    thumbnail: string;
+}
+
+/** Configuration stored server-side for a guild's AI Auto-Queue daemon. */
+export interface AIAutoQueueConfig {
+    enabled: boolean;
+    prompt: string;
+    count: number;
+    threshold: number;
+}
+
+/**
+ * Ask the backend (Gemini + yt-dlp) for song suggestions.
+ * Returns a preview list — nothing is added to the queue yet.
+ */
+export async function aiSuggest(
+    guildId: string,
+    prompt: string,
+    count = 5,
+): Promise<{ songs: AISong[]; prompt: string }> {
+    return await fetchApi(`/ai/${guildId}/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, count }),
+    });
+}
+
+/** Add a single AI-suggested song URL to the queue. */
+export async function aiConfirmSong(guildId: string, url: string) {
+    return await fetchApi(`/ai/${guildId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+    });
+}
+
+/** Fetch the current AI Auto-Queue configuration for a guild. */
+export async function getAIAutoQueue(guildId: string): Promise<AIAutoQueueConfig> {
+    return await fetchApi(`/ai/${guildId}/autoqueue`);
+}
+
+/** Enable / disable AI Auto-Queue daemon and update its parameters. */
+export async function setAIAutoQueue(guildId: string, cfg: AIAutoQueueConfig) {
+    return await fetchApi(`/ai/${guildId}/autoqueue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+    });
+}

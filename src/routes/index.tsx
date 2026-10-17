@@ -1,13 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { AudioLines, ArrowUpRight, Bug, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, ListMusic, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react'
+import { AudioLines, ArrowUpRight, Bug, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, type GuildSession } from '@/lib/api'
+import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, getAIAutoQueue, setAIAutoQueue, type GuildSession, type AISong, type AIAutoQueueConfig } from '@/lib/api'
 import { MarqueeText } from '@/components/MarqueeText'
 
 import ocean from '@/assets/ocean-drive.jpg'
@@ -96,6 +96,20 @@ function MusicRoom() {
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null)
   const syncRef = useRef<{ basePos: number; syncTime: number }>({ basePos: 0, syncTime: performance.now() })
 
+  // ---------------------------------------------------------------------------
+  // AI Auto-Queue state
+  // ---------------------------------------------------------------------------
+  const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiCount, setAiCount] = useState(5)
+  const [aiThreshold, setAiThreshold] = useState(2)
+  const [aiAutoEnabled, setAiAutoEnabled] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiAdding, setAiAdding] = useState<Set<string>>(new Set())
+  const [aiSuggestions, setAiSuggestions] = useState<AISong[]>([])
+  const [aiError, setAiError] = useState('')
+  const [aiConfig, setAiConfig] = useState<AIAutoQueueConfig | null>(null)
+
   useEffect(() => {
     if (queueIndex >= 0) {
       setCurrentPage(Math.floor(queueIndex / ITEMS_PER_PAGE) + 1);
@@ -151,6 +165,24 @@ function MusicRoom() {
       isSubscribed = false;
     };
   }, [currentGuildId, current?.title, stopped]);
+
+  // Load AI Auto-Queue config when guild changes
+  useEffect(() => {
+    if (!currentGuildId || !user) return;
+    let cancelled = false;
+    getAIAutoQueue(currentGuildId)
+      .then(cfg => {
+        if (cancelled) return;
+        setAiConfig(cfg);
+        setAiPrompt(cfg.prompt || '');
+        setAiCount(cfg.count ?? 5);
+        setAiThreshold(cfg.threshold ?? 2);
+        setAiAutoEnabled(cfg.enabled ?? false);
+      })
+      .catch(() => { /* silently ignore if AI not configured */ });
+    return () => { cancelled = true; };
+  }, [currentGuildId, user]);
+
 
   const effectiveTime = useMemo(() => {
     return Math.max(0, position + userOffset - (lyrics?.intro_offset || 0));
@@ -441,6 +473,66 @@ function MusicRoom() {
       }
   }, [currentGuildId, isVoiceConnected, query]);
 
+  // ---------------------------------------------------------------------------
+  // AI Auto-Queue handlers
+  // ---------------------------------------------------------------------------
+
+  const handleAISuggest = useCallback(async () => {
+    if (!aiPrompt.trim() || !currentGuildId || !isVoiceConnected) return;
+    setAiLoading(true);
+    setAiError('');
+    setAiSuggestions([]);
+    try {
+      const res = await aiSuggest(currentGuildId, aiPrompt.trim(), aiCount);
+      setAiSuggestions(res.songs || []);
+    } catch (err: any) {
+      setAiError(err?.message || 'AI service unavailable. Check GEMINI_API_KEY.');
+    } finally {
+      setAiLoading(false);
+    }
+  }, [aiPrompt, aiCount, currentGuildId, isVoiceConnected]);
+
+  const handleAIAddSong = useCallback(async (song: AISong) => {
+    if (!currentGuildId || !isVoiceConnected) return;
+    setAiAdding(prev => new Set(prev).add(song.url));
+    try {
+      await aiConfirmSong(currentGuildId, song.url);
+      setNotice(`Added: ${song.title}`);
+      // Remove from preview list after adding
+      setAiSuggestions(prev => prev.filter(s => s.url !== song.url));
+    } catch (err: any) {
+      setNotice(err?.message || 'Failed to add song');
+    } finally {
+      setAiAdding(prev => { const n = new Set(prev); n.delete(song.url); return n; });
+    }
+  }, [currentGuildId, isVoiceConnected]);
+
+  const handleAIAddAll = useCallback(async () => {
+    if (!currentGuildId || !isVoiceConnected || !aiSuggestions.length) return;
+    const toAdd = [...aiSuggestions];
+    setAiSuggestions([]);
+    for (const song of toAdd) {
+      try {
+        await aiConfirmSong(currentGuildId, song.url);
+      } catch { /* continue adding rest */ }
+    }
+    setNotice(`Added ${toAdd.length} AI songs to queue`);
+  }, [currentGuildId, isVoiceConnected, aiSuggestions]);
+
+  const handleAISaveConfig = useCallback(async (enabled: boolean) => {
+    if (!currentGuildId || !isVoiceConnected) return;
+    const cfg: AIAutoQueueConfig = { enabled, prompt: aiPrompt, count: aiCount, threshold: aiThreshold };
+    try {
+      await setAIAutoQueue(currentGuildId, cfg);
+      setAiConfig(cfg);
+      setAiAutoEnabled(enabled);
+      setNotice(enabled ? 'AI Auto-Queue enabled' : 'AI Auto-Queue disabled');
+    } catch (err: any) {
+      setNotice(err?.message || 'Failed to update AI config');
+    }
+  }, [currentGuildId, isVoiceConnected, aiPrompt, aiCount, aiThreshold]);
+
+
   const handleSkipTo = useCallback(async (index: number) => {
       if (!currentGuildId || !isVoiceConnected) return;
       try { await controlSkipTo(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
@@ -601,7 +693,43 @@ function MusicRoom() {
           </section>
 
           <section className="queue-panel glass-surface" aria-label="Track queue">
-            <div className="queue-heading"><div><h2>Up next <span className="queue-count">{queue.length}</span></h2><p>Your shared soundtrack.</p></div><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Queue options" className="text-muted-foreground"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={async () => { if (currentGuildId) { try { await controlClear(currentGuildId); setNotice('Queue cleared'); } catch(e: any) { setNotice(e.message || 'Failed to clear queue'); } } }}><Trash2 />Clear queue</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
+            <div className="queue-heading">
+              <div>
+                <h2>
+                  Up next <span className="queue-count">{queue.length}</span>
+                  {aiConfig?.enabled && (
+                    <span className="ai-active-badge" title="AI Auto-Queue is active">
+                      <Sparkles size={9} /> AI
+                    </span>
+                  )}
+                </h2>
+                <p>Your shared soundtrack.</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  id="ai-autoqueue-btn"
+                  aria-label="AI Auto-Queue"
+                  onClick={() => setAiPanelOpen(true)}
+                  disabled={!isVoiceConnected}
+                  className={`ai-toggle-btn ${aiConfig?.enabled ? 'is-active' : ''}`}
+                  title="AI Auto-Queue"
+                >
+                  <Sparkles size={15} />
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button aria-label="Queue options" className="queue-options-btn">
+                      <MoreHorizontal size={18} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={async () => { if (currentGuildId) { try { await controlClear(currentGuildId); setNotice('Queue cleared'); } catch(e: any) { setNotice(e.message || 'Failed to clear queue'); } } }}>
+                      <Trash2 />Clear queue
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
             <form className="add-track" onSubmit={handleAddSong}><Music2 size={18} /><Input aria-label="Song search or URL" placeholder="Paste a link or search for a song" value={query} onChange={event => setQuery(event.target.value)} /><Button size="icon" aria-label="Add to queue" disabled={!query.trim()} type="submit"><Plus /></Button></form>
             <div className="queue-tabs">
               <div className="flex items-center gap-2">
@@ -803,6 +931,141 @@ function MusicRoom() {
             )}
           </section>
         </div>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* AI Auto-Queue Dialog                                              */}
+        {/* ---------------------------------------------------------------- */}
+        <Dialog open={aiPanelOpen} onOpenChange={open => { setAiPanelOpen(open); if (!open) setAiError(''); }}>
+          <DialogContent className="ai-panel glass-surface" aria-labelledby="ai-panel-title">
+            <DialogHeader>
+              <DialogTitle id="ai-panel-title" className="ai-panel-title">
+                <Sparkles size={18} className="text-primary" />
+                AI Auto-Queue
+              </DialogTitle>
+              <DialogDescription className="ai-panel-desc">
+                Describe a mood, genre, or style — AI will find matching songs and add them to the queue.
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Prompt textarea */}
+            <div className="ai-field">
+              <label htmlFor="ai-prompt-input" className="ai-label">Your vibe</label>
+              <textarea
+                id="ai-prompt-input"
+                className="ai-prompt-textarea"
+                rows={2}
+                placeholder="e.g. lo-fi chill buổi tối, K-pop sôi động, nhạc jazz cà phê..."
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAISuggest(); } }}
+                disabled={aiLoading}
+              />
+            </div>
+
+            {/* Config row */}
+            <div className="ai-config-row">
+              <div className="ai-config-item">
+                <label htmlFor="ai-count-input" className="ai-label">Songs to add</label>
+                <input
+                  id="ai-count-input"
+                  type="number"
+                  className="ai-number-input"
+                  value={aiCount}
+                  min={1}
+                  max={20}
+                  onChange={e => setAiCount(Math.max(1, Math.min(20, Number(e.target.value))))}
+                />
+              </div>
+              <div className="ai-config-item">
+                <label htmlFor="ai-threshold-input" className="ai-label">Auto-fill when &lt; songs left</label>
+                <input
+                  id="ai-threshold-input"
+                  type="number"
+                  className="ai-number-input"
+                  value={aiThreshold}
+                  min={1}
+                  max={10}
+                  onChange={e => setAiThreshold(Math.max(1, Math.min(10, Number(e.target.value))))}
+                />
+              </div>
+            </div>
+
+            {/* Auto-fill toggle */}
+            <div className="ai-toggle-row">
+              <button
+                id="ai-auto-toggle"
+                role="switch"
+                aria-checked={aiAutoEnabled}
+                className={`ai-switch ${aiAutoEnabled ? 'is-on' : ''}`}
+                onClick={() => handleAISaveConfig(!aiAutoEnabled)}
+                disabled={!aiPrompt.trim()}
+                title={aiPrompt.trim() ? undefined : 'Enter a prompt first'}
+              >
+                <span className="ai-switch-thumb" />
+              </button>
+              <span className="ai-toggle-label">
+                Auto-fill when queue runs low
+                {aiAutoEnabled && <span className="ai-on-pill">ON</span>}
+              </span>
+            </div>
+
+            {/* Suggest button */}
+            <Button
+              id="ai-suggest-btn"
+              className="ai-suggest-btn"
+              onClick={handleAISuggest}
+              disabled={aiLoading || !aiPrompt.trim() || !isVoiceConnected}
+            >
+              {aiLoading
+                ? <><Loader2 size={15} className="animate-spin" /> Searching…</>
+                : <><Sparkles size={15} /> Find songs</>}
+            </Button>
+
+            {/* Error */}
+            {aiError && (
+              <p className="ai-error" role="alert">{aiError}</p>
+            )}
+
+            {/* Preview list */}
+            {aiSuggestions.length > 0 && (
+              <div className="ai-suggestions">
+                <div className="ai-suggestions-header">
+                  <span className="ai-suggestions-label">{aiSuggestions.length} suggestions</span>
+                  <button className="ai-add-all-btn" onClick={handleAIAddAll} disabled={!isVoiceConnected}>
+                    <Plus size={12} /> Add all
+                  </button>
+                </div>
+                <div className="ai-suggestions-list no-scrollbar">
+                  {aiSuggestions.map((song, i) => {
+                    const adding = aiAdding.has(song.url);
+                    return (
+                      <div key={`${song.url}-${i}`} className="ai-song-row">
+                        {song.thumbnail ? (
+                          <img src={song.thumbnail} alt="" className="ai-song-thumb" loading="lazy" />
+                        ) : (
+                          <div className="ai-song-thumb ai-song-thumb-placeholder"><Music2 size={14} /></div>
+                        )}
+                        <div className="ai-song-info">
+                          <div className="ai-song-title">{song.title}</div>
+                          <div className="ai-song-artist">{song.artist}</div>
+                        </div>
+                        <span className="ai-song-duration">{formatTime(song.duration)}</span>
+                        <button
+                          aria-label={`Add ${song.title}`}
+                          className="ai-song-add-btn"
+                          onClick={() => handleAIAddSong(song)}
+                          disabled={adding || !isVoiceConnected}
+                        >
+                          {adding ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
         <div className="session-band">
           <div className="voice-icon"><Radio size={19} /></div>
           <div className="session-info">
