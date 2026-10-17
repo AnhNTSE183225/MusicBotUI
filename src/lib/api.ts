@@ -51,8 +51,17 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
         throw new Error("Unauthorized");
     }
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(body || `API error: ${res.status}`);
+        let msg = `API error: ${res.status}`;
+        try {
+            const data = await res.json();
+            if (data?.detail) {
+                msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+            }
+        } catch {
+            const body = await res.text().catch(() => '');
+            if (body) msg = body;
+        }
+        throw new Error(msg);
     }
     return res.json();
 }
@@ -179,3 +188,89 @@ export async function getLyrics(guildId: string) {
     return await fetchApi(`/lyrics/${guildId}`);
 }
 
+// ---------------------------------------------------------------------------
+// AI Auto-Queue API
+// ---------------------------------------------------------------------------
+
+/** A single AI-suggested song returned from the suggest endpoint. */
+export interface AISong {
+    title: string;
+    artist: string;
+    duration: number;
+    url: string;
+    thumbnail: string;
+}
+
+/** Configuration stored server-side for a guild's AI Auto-Queue daemon. */
+export interface AIAutoQueueConfig {
+    enabled: boolean;
+    prompt: string;
+    count: number;
+    threshold: number;
+}
+
+/**
+ * Ask the backend (Gemini + yt-dlp) for song suggestions.
+ * Returns a preview list — nothing is added to the queue yet.
+ */
+export async function aiSuggest(
+    guildId: string,
+    prompt: string,
+    count = 5,
+): Promise<{ songs: AISong[]; prompt: string }> {
+    return await fetchApi(`/ai/${guildId}/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, count }),
+    });
+}
+
+/** Add a single AI-suggested song to the queue. Accepts song object or url string. */
+export async function aiConfirmSong(guildId: string, songOrUrl: AISong | string) {
+    const payload = typeof songOrUrl === 'string'
+        ? { url: songOrUrl }
+        : {
+            url: songOrUrl.url,
+            title: songOrUrl.title,
+            artist: songOrUrl.artist,
+            thumbnail: songOrUrl.thumbnail,
+            duration: songOrUrl.duration,
+        };
+    return await fetchApi(`/ai/${guildId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+/** Add a list of AI-suggested songs to the queue in bulk. */
+export async function aiConfirmBatch(guildId: string, songs: AISong[]) {
+    const payload = {
+        songs: songs.map(s => ({
+            url: s.url,
+            title: s.title,
+            artist: s.artist,
+            thumbnail: s.thumbnail,
+            duration: s.duration,
+        }))
+    };
+    return await fetchApi(`/ai/${guildId}/confirm_batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+/** Fetch the current AI Auto-Queue configuration for a guild. */
+export async function getAIAutoQueue(guildId: string): Promise<AIAutoQueueConfig> {
+    return await fetchApi(`/ai/${guildId}/autoqueue`);
+}
+
+/** Enable / disable AI Auto-Queue daemon and update its parameters. */
+export async function setAIAutoQueue(guildId: string, cfg: AIAutoQueueConfig) {
+    return await fetchApi(`/ai/${guildId}/autoqueue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+    });
+}

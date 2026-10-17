@@ -11,6 +11,7 @@ vi.mock('@/lib/api', async () => {
     getGuilds: vi.fn(),
     getStreamUrl: vi.fn().mockResolvedValue('http://localhost:8000/api/stream/123'),
     getLyrics: vi.fn().mockResolvedValue({ lyrics: null }),
+    getAIAutoQueue: vi.fn().mockResolvedValue({ enabled: false }),
   }
 })
 
@@ -73,8 +74,7 @@ describe('Voice channel gating & Contribution section', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.queryByText('Join a voice channel')).not.toBeInTheDocument()
-      expect(screen.queryByText('Sign in to listen')).not.toBeInTheDocument()
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
     })
 
     const main = document.querySelector('.room-main')
