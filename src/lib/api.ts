@@ -207,6 +207,8 @@ export interface AIAutoQueueConfig {
     prompt: string;
     count: number;
     threshold: number;
+    set_by_name?: string | null;
+    set_by_avatar?: string | null;
 }
 
 /**
@@ -274,3 +276,47 @@ export async function setAIAutoQueue(guildId: string, cfg: AIAutoQueueConfig) {
         body: JSON.stringify(cfg),
     });
 }
+
+export interface GeminiKeyInfo {
+    id: number;
+    masked_key: string;
+    added_by_user_id: string;
+    added_by_username: string;
+    added_by_avatar: string | null;
+    added_at: number;
+    is_active: boolean;
+    status: 'healthy' | 'quota_exceeded' | 'invalid';
+    status_message: string;
+    cooldown_remaining_seconds: number;
+    total_uses: number;
+    last_used_at: number;
+}
+
+export interface GeminiKeysResponse {
+    keys: GeminiKeyInfo[];
+    total_active: number;
+    total_keys: number;
+    is_admin: boolean;
+}
+
+/** Get all contributed Gemini keys in the pool with health statistics. */
+export async function getGeminiKeys(): Promise<GeminiKeysResponse> {
+    return await fetchApi('/ai/keys');
+}
+
+/** Validate and add a contributed Gemini key to the pool. */
+export async function contributeGeminiKey(apiKey: string): Promise<{ status: string; message: string }> {
+    return await fetchApi('/ai/keys/contribute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey }),
+    });
+}
+
+/** Delete a Gemini key from the pool (admin only). */
+export async function deleteGeminiKey(keyId: number): Promise<{ status: string }> {
+    return await fetchApi(`/ai/keys/${keyId}`, {
+        method: 'DELETE',
+    });
+}
+

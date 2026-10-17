@@ -76,9 +76,9 @@ describe('AI Auto-Queue UI & Fixes', () => {
       expect(screen.getByText('Live Session')).toBeInTheDocument()
     })
 
-    // Open AI Dialog
-    const aiBtn = await screen.findByRole('button', { name: /AI Auto-Queue/i })
-    fireEvent.click(aiBtn)
+    // Open AI Dialog to Search tab
+    const searchBtn = await screen.findByRole('button', { name: /AI Search & Preview/i })
+    fireEvent.click(searchBtn)
 
     // Fill in vibe prompt
     const promptInput = await screen.findByPlaceholderText(/lo-fi chill buổi tối/i)
@@ -216,9 +216,9 @@ describe('AI Auto-Queue UI & Fixes', () => {
       expect(screen.getByText('Live Session')).toBeInTheDocument()
     })
 
-    // Open AI Dialog
-    const settingsBtn = screen.getByRole('button', { name: /AI Auto-Queue/i })
-    fireEvent.click(settingsBtn)
+    // Open AI Dialog to Search tab
+    const searchBtn = screen.getByRole('button', { name: /AI Search & Preview/i })
+    fireEvent.click(searchBtn)
 
     // Ensure count input is 5
     const countInput = screen.getByLabelText(/Songs to preview/i) as HTMLInputElement
@@ -237,6 +237,109 @@ describe('AI Auto-Queue UI & Fixes', () => {
       expect(screen.getByText('Song Number 5')).toBeInTheDocument()
       expect(screen.queryByText('Song Number 6')).not.toBeInTheDocument()
       expect(screen.queryByText('Song Number 8')).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not reject toggle changes or revert when SSE messages arrive while modal is open', async () => {
+    vi.mocked(api.getAIAutoQueue).mockResolvedValue({
+      enabled: false,
+      prompt: 'ambient study',
+      count: 5,
+      threshold: 2,
+    })
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
+    })
+
+    // Open AI Dialog
+    const settingsBtn = screen.getByRole('button', { name: /AI Auto-Queue/i })
+    fireEvent.click(settingsBtn)
+
+    // Switch to "Auto-fill Rules" tab
+    const autoFillTab = screen.getByRole('button', { name: /Auto-fill Rules/i })
+    fireEvent.click(autoFillTab)
+
+    // Find modal toggle switch
+    const modalToggle = screen.getByRole('switch', { name: /Enable Auto-fill when queue runs low/i })
+    expect(modalToggle).toHaveAttribute('aria-checked', 'false')
+
+    // User toggles the switch to ON
+    fireEvent.click(modalToggle)
+    expect(modalToggle).toHaveAttribute('aria-checked', 'true')
+
+    // Simulate incoming SSE event broadcasting stale ai_auto_enabled: false
+    const sseInstance = MockEventSource.instances[0]
+    expect(sseInstance).toBeDefined()
+    sseInstance.emit({
+      current: null,
+      queue: [],
+      ai_auto_enabled: false,
+      bot_connected: true,
+    })
+
+    // The modal toggle must NOT revert back to false!
+    expect(modalToggle).toHaveAttribute('aria-checked', 'true')
+
+    // Click "Save Auto-fill Settings"
+    const saveBtn = screen.getByRole('button', { name: /Save Auto-fill Settings/i })
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(api.setAIAutoQueue).toHaveBeenCalledWith(
+        'guild1',
+        expect.objectContaining({ enabled: true, prompt: 'ambient study' })
+      )
+    })
+  })
+
+  it('renders app logo as avatar for tracks added by AI Auto-Queue', async () => {
+    vi.mocked(api.getAIAutoQueue).mockResolvedValue({
+      status: 'ok',
+      config: { enabled: true, prompt: 'chill beats', count: 5, threshold: 2 }
+    })
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
+    })
+
+    const sseInstance = MockEventSource.instances[0]
+    expect(sseInstance).toBeDefined()
+
+    sseInstance.emit({
+      current: {
+        title: 'Current AI Track',
+        artist: 'AI Artist',
+        requester_handle: 'AI Auto-Queue',
+        requester_avatar: '/logo_icon.svg',
+      },
+      queue: [
+        {
+          title: 'Queued AI Track',
+          artist: 'AI Artist 2',
+          requester_handle: 'AI Auto-Queue',
+          requester_avatar: 'https://cdn.discordapp.com/avatars/user123/old_avatar.png',
+        }
+      ],
+      ai_auto_enabled: true,
+      bot_connected: true,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Current AI Track')).toBeInTheDocument()
+      expect(screen.getByText('Queued AI Track')).toBeInTheDocument()
+    })
+
+    const avatars = screen.getAllByAltText('AI Auto-Queue')
+    expect(avatars.length).toBeGreaterThanOrEqual(2)
+    avatars.forEach(avatar => {
+      expect(avatar.getAttribute('src')).toContain('logo_icon.svg')
     })
   })
 })

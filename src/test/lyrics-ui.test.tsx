@@ -75,9 +75,10 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     const viewLyricsControl = screen.getByRole('button', { name: /View lyrics/i })
     expect(viewLyricsControl).toBeInTheDocument()
 
-    // Switching tab via player button updates heading to Lyrics
+    // Switching tab via player button activates Lyrics tab and keeps header intact
     fireEvent.click(viewLyricsControl)
-    expect(screen.getByRole('heading', { level: 2, name: 'Lyrics' })).toBeInTheDocument()
+    expect(lyricsTab).toHaveClass('active-tab')
+    expect(screen.getByRole('heading', { level: 2, name: /Up next/i })).toBeInTheDocument()
   })
 
   it('provides Check again retry button when lyrics are not found (Issue #2)', async () => {
@@ -162,4 +163,64 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     // (which would scroll the outer page/window)
     expect(scrollIntoViewSpy).not.toHaveBeenCalled()
   })
+
+  it('joins syllables within the same word without spacing and adds space after word boundaries', async () => {
+    const mockLyrics = {
+      type: 'syllable' as const,
+      provider: 'applemusic',
+      lines: [
+        {
+          begin: 0,
+          end: 10,
+          text: 'Heart, unbreakable',
+          words: [
+            { begin: 0, end: 1, text: 'Heart,' },
+            { begin: 2, end: 3, text: 'un' },
+            { begin: 3, end: 4, text: 'break' },
+            { begin: 4, end: 5, text: 'a' },
+            { begin: 5, end: 6, text: 'ble' },
+          ],
+        },
+      ],
+    }
+    vi.mocked(api.getLyrics).mockResolvedValue({ lyrics: mockLyrics })
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(MockEventSource.instances.length).toBeGreaterThan(0)
+    })
+
+    act(() => {
+      MockEventSource.instances[0].emit({
+        current: { title: 'Unbreakable', artist: 'Artist', duration: 180 },
+        queue: [],
+      })
+    })
+
+    // Switch to lyrics tab
+    fireEvent.click(screen.getByRole('button', { name: /^Lyrics/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Heart,')).toBeInTheDocument()
+      expect(screen.getByText('un')).toBeInTheDocument()
+      expect(screen.getByText('break')).toBeInTheDocument()
+      expect(screen.getByText('a')).toBeInTheDocument()
+      expect(screen.getByText('ble')).toBeInTheDocument()
+    })
+
+    // "Heart," is followed by a space in "Heart, unbreakable", so it has has-space
+    expect(screen.getByText('Heart,')).toHaveClass('has-space')
+
+    // "un", "break", "a" are syllables inside "unbreakable", so they must NOT have has-space
+    expect(screen.getByText('un')).not.toHaveClass('has-space')
+    expect(screen.getByText('break')).not.toHaveClass('has-space')
+    expect(screen.getByText('a')).not.toHaveClass('has-space')
+
+    // "ble" is at the end of the line/word, so it does not have has-space
+    expect(screen.getByText('ble')).not.toHaveClass('has-space')
+  })
 })
+

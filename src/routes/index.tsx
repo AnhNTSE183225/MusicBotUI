@@ -1,13 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { AudioLines, ArrowUpRight, Bug, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react'
+import { AudioLines, ArrowUpRight, Bug, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, aiConfirmBatch, getAIAutoQueue, setAIAutoQueue, type GuildSession, type AISong, type AIAutoQueueConfig } from '@/lib/api'
+import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, aiConfirmBatch, getAIAutoQueue, setAIAutoQueue, getGeminiKeys, contributeGeminiKey, deleteGeminiKey, type GuildSession, type AISong, type AIAutoQueueConfig, type GeminiKeyInfo, type GeminiKeysResponse } from '@/lib/api'
+
 import { MarqueeText } from '@/components/MarqueeText'
 
 import ocean from '@/assets/ocean-drive.jpg'
@@ -39,7 +40,7 @@ function IconControl({ label, children, onClick, active = false, disabled = fals
 
 export type Track = { id: string; title: string; artist: string; album: string; image: string; duration: number; requestedBy: string; requestedAvatar?: string | null; originalIndex?: number }
 
-export type LyricWord = { begin: number; end: number; text: string }
+export type LyricWord = { begin: number; end: number; text: string; trailing_space?: boolean }
 export type LyricLine = { begin: number; end: number; text: string; words?: LyricWord[] | null }
 export type LyricsData = { type: 'syllable' | 'line'; provider: string; intro_offset?: number; lines: LyricLine[] }
 
@@ -51,6 +52,17 @@ function getImageForTrack(title: string) {
         hash = title.charCodeAt(i) + ((hash << 5) - hash);
     }
     return images[Math.abs(hash) % images.length];
+}
+
+export function optimizeThumbnailUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.includes('i.ytimg.com/vi/') || trimmed.includes('img.youtube.com/vi/')) {
+    if (trimmed.includes('/hqdefault.jpg')) {
+      return trimmed.replace('/hqdefault.jpg', '/maxresdefault.jpg');
+    }
+  }
+  return trimmed;
 }
 
 const idleTrack: Track = {
@@ -99,10 +111,10 @@ function MusicRoom() {
   const syncRef = useRef<{ basePos: number; syncTime: number }>({ basePos: 0, syncTime: performance.now() })
 
   // ---------------------------------------------------------------------------
-  // AI Auto-Queue state
+  // AI Auto-Queue & Community Key state
   // ---------------------------------------------------------------------------
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
-  const [aiPanelTab, setAiPanelTab] = useState<'search' | 'autoqueue'>('search')
+  const [aiPanelTab, setAiPanelTab] = useState<'search' | 'autoqueue' | 'keys'>('search')
   const [aiSearchPrompt, setAiSearchPrompt] = useState('')
   const [aiAutoPrompt, setAiAutoPrompt] = useState('')
   const [aiCount, setAiCount] = useState(5)
@@ -114,6 +126,32 @@ function MusicRoom() {
   const [aiSuggestions, setAiSuggestions] = useState<AISong[]>([])
   const [aiError, setAiError] = useState('')
   const [aiConfig, setAiConfig] = useState<AIAutoQueueConfig | null>(null)
+
+  // Local form draft state for Auto-fill modal (prevents SSE broadcast from stomping user edits)
+  const [formAutoEnabled, setFormAutoEnabled] = useState(false)
+  const [formAutoPrompt, setFormAutoPrompt] = useState('')
+  const [formCount, setFormCount] = useState(5)
+  const [formThreshold, setFormThreshold] = useState(2)
+
+  useEffect(() => {
+    if (aiPanelOpen) {
+      setFormAutoEnabled(aiAutoEnabled)
+      setFormAutoPrompt(aiAutoPrompt || aiConfig?.prompt || '')
+      setFormCount(aiCount || aiConfig?.count || 5)
+      setFormThreshold(aiThreshold || aiConfig?.threshold || 2)
+    }
+  }, [aiPanelOpen])
+
+  // Community Key Management state
+  const [geminiKeys, setGeminiKeys] = useState<GeminiKeyInfo[]>([])
+  const [activeKeysCount, setActiveKeysCount] = useState(0)
+  const [totalKeysCount, setTotalKeysCount] = useState(0)
+  const [isKeyAdmin, setIsKeyAdmin] = useState(false)
+  const [newKeyInput, setNewKeyInput] = useState('')
+  const [keySubmitting, setKeySubmitting] = useState(false)
+  const [keySubmitError, setKeySubmitError] = useState('')
+  const [keySubmitSuccess, setKeySubmitSuccess] = useState('')
+
 
   useEffect(() => {
     if (queueIndex >= 0) {
@@ -373,9 +411,12 @@ function MusicRoom() {
   // Poll voice status periodically and on window focus when user is logged in
   useEffect(() => {
     if (!user) return;
+    const hasVoice = Boolean(guilds.length > 0 && currentGuildId);
+    const intervalTime = hasVoice ? 12000 : 4000;
     const interval = setInterval(() => {
+      if (document.hidden) return;
       refreshVoiceStatus();
-    }, 3500);
+    }, intervalTime);
 
     const handleFocus = () => {
       refreshVoiceStatus();
@@ -386,7 +427,7 @@ function MusicRoom() {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [user, refreshVoiceStatus]);
+  }, [user, guilds.length, currentGuildId, refreshVoiceStatus]);
 
   // SSE connection
   useEffect(() => {
@@ -411,10 +452,12 @@ function MusicRoom() {
                 title: state.current.title,
                 artist: state.current.artist || 'Unknown Artist',
                 album: 'Discord',
-                image: state.current.thumbnail || getImageForTrack(state.current.title),
+                image: optimizeThumbnailUrl(state.current.thumbnail) || getImageForTrack(state.current.title),
                 duration: state.current.duration || 0,
                 requestedBy: state.current.requester_handle || 'Unknown',
-                requestedAvatar: state.current.requester_avatar || null
+                requestedAvatar: (state.current.requester_handle === 'AI Auto-Queue' || state.current.requester_avatar === '/logo_icon.svg')
+                  ? logoIcon
+                  : (state.current.requester_avatar || null)
               });
               setStopped(false);
               const isPaused = !!state.is_paused;
@@ -436,7 +479,27 @@ function MusicRoom() {
                setVolume(vol);
             }
             if (state.loop !== undefined) setLoop(!!state.loop);
-            if (state.bot_connected !== undefined) setSummoned(!!state.bot_connected);
+            if (state.bot_connected !== undefined) {
+              const isConn = !!state.bot_connected;
+              setSummoned(isConn);
+              if (!isConn) {
+                setAiAutoEnabled(false);
+                setAiConfig(prev => prev ? { ...prev, enabled: false } : prev);
+              }
+            }
+            if (state.ai_auto_enabled !== undefined) {
+              setAiAutoEnabled(!!state.ai_auto_enabled);
+              setAiConfig(prev => {
+                const base = prev || { enabled: false, prompt: '', count: 5, threshold: 2 };
+                return {
+                  ...base,
+                  enabled: !!state.ai_auto_enabled,
+                  prompt: state.ai_prompt !== undefined && state.ai_prompt !== null ? state.ai_prompt : base.prompt,
+                  set_by_name: (state.ai_set_by_name && state.ai_set_by_name !== 'User') ? state.ai_set_by_name : (base.set_by_name && base.set_by_name !== 'User' ? base.set_by_name : (user?.global_name || user?.username || base.set_by_name)),
+                  set_by_avatar: state.ai_set_by_avatar !== undefined && state.ai_set_by_avatar !== null ? state.ai_set_by_avatar : (base.set_by_avatar || (user?.avatar && user?.id ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)),
+                };
+              });
+            }
             if (state.skip_votes !== undefined) setSkipVotes(state.skip_votes);
             if (state.skip_votes_required !== undefined) setSkipVotesReq(state.skip_votes_required);
             if (state.pause_votes !== undefined) setPauseVotes(state.pause_votes);
@@ -453,10 +516,12 @@ function MusicRoom() {
                     title: q.title,
                     artist: q.artist || 'Unknown Artist',
                     album: 'Discord',
-                    image: q.thumbnail || getImageForTrack(q.title),
+                    image: optimizeThumbnailUrl(q.thumbnail) || getImageForTrack(q.title),
                     duration: q.duration || 0,
                     requestedBy: q.requester_handle || 'Unknown',
-                    requestedAvatar: q.requester_avatar || null,
+                    requestedAvatar: (q.requester_handle === 'AI Auto-Queue' || q.requester_avatar === '/logo_icon.svg')
+                      ? logoIcon
+                      : (q.requester_avatar || null),
                     originalIndex: i
                 })));
             } else {
@@ -501,6 +566,12 @@ function MusicRoom() {
   const currentGuild = useMemo(() => guilds.find(g => g.id === currentGuildId), [guilds, currentGuildId]);
   const currentGuildName = useMemo(() => currentGuild?.name || 'The Listening Room', [currentGuild]);
   const currentVoiceChannelName = useMemo(() => currentGuild?.channel_name || 'voice', [currentGuild]);
+
+  const autoQueueDisplayPrompt = (aiConfig?.prompt || aiAutoPrompt || '').trim();
+  const autoQueueAuthorName = (aiConfig?.set_by_name && aiConfig.set_by_name !== 'User')
+    ? aiConfig.set_by_name
+    : (user?.global_name || user?.username || 'Admin');
+  const autoQueueAuthorAvatar = aiConfig?.set_by_avatar || (user?.avatar && user?.id ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null);
 
   const handleSummon = useCallback(async () => {
       if (!currentGuildId || !isVoiceConnected) return;
@@ -624,32 +695,105 @@ function MusicRoom() {
     }
   }, [currentGuildId, isVoiceConnected, aiSuggestions, aiAddingAll]);
 
-  const handleAISaveConfig = useCallback(async (enabled: boolean, overridePrompt?: string) => {
+  const handleAISaveConfig = useCallback(async (
+    enabled: boolean,
+    overridePrompt?: string,
+    overrideCount?: number,
+    overrideThreshold?: number
+  ) => {
     if (!currentGuildId || !isVoiceConnected) return;
+    if (!summoned) {
+      setNotice('Bot must join a voice channel before enabling Auto-fill.');
+      return;
+    }
     const targetPrompt = (overridePrompt !== undefined ? overridePrompt : aiAutoPrompt).trim();
+    const targetCount = overrideCount !== undefined ? overrideCount : aiCount;
+    const targetThreshold = overrideThreshold !== undefined ? overrideThreshold : aiThreshold;
     const cfg: AIAutoQueueConfig = {
       enabled,
       prompt: targetPrompt,
-      count: aiCount,
-      threshold: aiThreshold,
+      count: targetCount,
+      threshold: targetThreshold,
     };
     try {
-      await setAIAutoQueue(currentGuildId, cfg);
-      setAiConfig(cfg);
+      const res = await setAIAutoQueue(currentGuildId, cfg);
+      const updatedConfig: AIAutoQueueConfig = (res && res.config) ? res.config : {
+        ...cfg,
+        set_by_name: user?.global_name || user?.username || 'You',
+        set_by_avatar: user?.avatar && user?.id ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null,
+      };
+      setAiConfig(updatedConfig);
       setAiAutoEnabled(enabled);
-      if (overridePrompt !== undefined) setAiAutoPrompt(targetPrompt);
+      setAiAutoPrompt(targetPrompt);
+      if (overrideCount !== undefined) setAiCount(targetCount);
+      if (overrideThreshold !== undefined) setAiThreshold(targetThreshold);
+      setFormAutoEnabled(enabled);
+      setFormAutoPrompt(targetPrompt);
+      if (overrideCount !== undefined) setFormCount(targetCount);
+      if (overrideThreshold !== undefined) setFormThreshold(targetThreshold);
       setNotice(enabled ? `AI Auto-Queue enabled ("${targetPrompt || 'Active'}")` : 'AI Auto-Queue disabled');
     } catch (err: any) {
       setNotice(err?.message || 'Failed to update AI config');
     }
-  }, [currentGuildId, isVoiceConnected, aiAutoPrompt, aiCount, aiThreshold]);
+  }, [currentGuildId, isVoiceConnected, summoned, aiAutoPrompt, aiCount, aiThreshold, user]);
 
   const handleUseSearchVibeForAutoQueue = useCallback(() => {
     if (!aiSearchPrompt.trim()) return;
     setAiAutoPrompt(aiSearchPrompt.trim());
+    setFormAutoPrompt(aiSearchPrompt.trim());
     handleAISaveConfig(true, aiSearchPrompt.trim());
     setNotice(`Auto-fill vibe updated to: "${aiSearchPrompt.trim()}" (Auto-fill is ON)`);
   }, [aiSearchPrompt, handleAISaveConfig]);
+
+  const fetchKeys = useCallback(async () => {
+    try {
+      const data = await getGeminiKeys();
+      setGeminiKeys(data.keys || []);
+      setActiveKeysCount(data.total_active || 0);
+      setTotalKeysCount(data.total_keys || 0);
+      setIsKeyAdmin(data.is_admin || false);
+    } catch (err: any) {
+      console.warn('Could not fetch Gemini keys:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchKeys();
+      const interval = setInterval(fetchKeys, 30000); // Polling every 30s
+      return () => clearInterval(interval);
+    }
+  }, [user, fetchKeys]);
+
+  const handleContributeKey = useCallback(async () => {
+    const rawKey = newKeyInput.trim();
+    if (!rawKey) return;
+    setKeySubmitting(true);
+    setKeySubmitError('');
+    setKeySubmitSuccess('');
+    try {
+      const res = await contributeGeminiKey(rawKey);
+      setKeySubmitSuccess(res.message || 'Key added successfully!');
+      setNewKeyInput('');
+      await fetchKeys();
+      setNotice(res.message || 'Gemini API Key added to the pool!');
+    } catch (err: any) {
+      setKeySubmitError(err?.message || 'Key validation failed. Ensure the key is active in Google AI Studio.');
+    } finally {
+      setKeySubmitting(false);
+    }
+  }, [newKeyInput, fetchKeys]);
+
+  const handleDeleteKey = useCallback(async (keyId: number) => {
+    try {
+      await deleteGeminiKey(keyId);
+      await fetchKeys();
+      setNotice('API Key removed from pool');
+    } catch (err: any) {
+      setNotice(err?.message || 'Failed to remove key');
+    }
+  }, [fetchKeys]);
+
 
 
   const handleSkipTo = useCallback(async (index: number) => {
@@ -679,8 +823,8 @@ function MusicRoom() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="server-select" disabled={!isVoiceConnected}>
                 <span className="server-symbol"><Headphones size={15} /></span>
-                {isVoiceConnected ? currentGuildName : 'No voice channel'}
-                <ChevronDown size={14} />
+                <span className="truncate">{isVoiceConnected ? currentGuildName : 'No voice channel'}</span>
+                <ChevronDown size={14} className="shrink-0" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center">
@@ -696,10 +840,37 @@ function MusicRoom() {
           </DropdownMenu>
           <span className="header-divider" />
           <span className="header-channel">
-            <Radio size={14} /> {isVoiceConnected ? currentVoiceChannelName : 'offline'}
+            <Radio size={14} className="shrink-0" />
+            <span className="truncate max-w-[120px]">{isVoiceConnected ? currentVoiceChannelName : 'offline'}</span>
           </span>
         </div>
         <div className="header-actions">
+           <Tooltip>
+             <TooltipTrigger asChild>
+               <Button
+                 variant="ghost"
+                 size="sm"
+                 aria-label="Community AI Pool Status and Contribution"
+                 onClick={() => { setAiPanelTab('keys'); setAiPanelOpen(true); }}
+                 className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-all ${
+                   activeKeysCount > 0
+                     ? 'bg-primary/10 text-primary border-primary/25 hover:bg-primary/20'
+                     : 'bg-amber-500/10 text-amber-400 border-amber-500/25 hover:bg-amber-500/20'
+                 }`}
+               >
+                 <Sparkles size={13} className={activeKeysCount > 0 ? 'text-primary' : 'text-amber-400'} />
+                 <span>AI Pool</span>
+                 <span className="font-semibold px-1 py-0.2 rounded-full text-[10px] bg-white/10">
+                   {activeKeysCount}/{totalKeysCount}
+                 </span>
+               </Button>
+             </TooltipTrigger>
+             <TooltipContent>
+               {activeKeysCount > 0
+                 ? `${activeKeysCount} operational Gemini key(s). Click to view pool or contribute a free key!`
+                 : 'All Gemini keys currently exhausted! Click to contribute a free key.'}
+             </TooltipContent>
+           </Tooltip>
            <Tooltip>
              <TooltipTrigger asChild>
                <Button
@@ -714,8 +885,9 @@ function MusicRoom() {
              </TooltipTrigger>
              <TooltipContent>Contribute / Report Bug</TooltipContent>
            </Tooltip>
+
            {!isAuthLoaded ? null : !user ? (
-             <Button variant="secondary" onClick={() => window.location.href = getLoginUrl()}>Login with Discord</Button>
+             <Button variant="secondary" size="sm" className="login-btn text-xs font-semibold" onClick={() => window.location.href = getLoginUrl()}>Login with Discord</Button>
            ) : (
              <>
                {!isVoiceConnected ? (
@@ -737,6 +909,12 @@ function MusicRoom() {
                  <DropdownMenuContent align="end">
                    <DropdownMenuLabel>Account · {user.username}</DropdownMenuLabel>
                    <DropdownMenuSeparator />
+                   <DropdownMenuItem onClick={() => setDialog('connection')}>
+                     <Settings2 size={14} className="mr-1.5" /> Connection Settings
+                   </DropdownMenuItem>
+                   <DropdownMenuItem onClick={() => { setAiPanelTab('keys'); setAiPanelOpen(true); }}>
+                     <Sparkles size={14} className="mr-1.5" /> Community AI Pool ({activeKeysCount}/{totalKeysCount})
+                   </DropdownMenuItem>
                    <DropdownMenuItem onClick={() => setDialog('contribution')}>
                      <Github size={14} className="mr-1.5" /> Contribute / Report Bug
                    </DropdownMenuItem>
@@ -762,11 +940,33 @@ function MusicRoom() {
         <div className="music-layout">
           <section className="player-panel glass-surface" aria-label="Music player">
             <div className="section-topline"><div className="section-label"><span className={`equalizer ${playing && !stopped ? 'is-playing' : ''}`}><i /><i /><i /><i /></span>{stopped ? 'PLAYBACK STOPPED' : playing ? 'NOW PLAYING' : 'PAUSED'}</div><span className="source-tag"><span className="source-dot" /> Stream</span></div>
-            <div className="artwork-stage"><img key={displayCurrent.id} className="album-art" src={displayCurrent.image} alt={`${displayCurrent.title} album artwork`} width={1024} height={1024} /><span className="album-caption">{displayCurrent.album}</span></div>
+            <div className="artwork-stage">
+              <img
+                key={displayCurrent.id}
+                className="album-art"
+                src={optimizeThumbnailUrl(displayCurrent.image)}
+                alt={`${displayCurrent.title} album artwork`}
+                width={1024}
+                height={1024}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (target.src.includes('/maxresdefault.jpg')) {
+                    target.src = target.src.replace('/maxresdefault.jpg', '/mqdefault.jpg');
+                  }
+                }}
+              />
+              <span className="album-caption">{displayCurrent.album}</span>
+            </div>
             <div className="track-details"><div className="min-w-0 w-full"><h2><MarqueeText text={displayCurrent.title} active={!stopped} /></h2><div className="track-artist"><MarqueeText text={displayCurrent.artist} active={!stopped} /></div></div></div>
             {displayCurrent.requestedBy ? (
               <div className="track-context">
-                {(displayCurrent.requestedAvatar || (user && user.username === displayCurrent.requestedBy && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)) ? (
+                {(displayCurrent.requestedBy === 'AI Auto-Queue' || displayCurrent.requestedAvatar === logoIcon || displayCurrent.requestedAvatar === '/logo_icon.svg') ? (
+                  <img
+                    src={logoIcon}
+                    alt="AI Auto-Queue"
+                    className="w-4 h-4 rounded-full bg-[#141c21] p-0.5 border border-[#00E676]/35 !object-contain shrink-0"
+                  />
+                ) : (displayCurrent.requestedAvatar || (user && user.username === displayCurrent.requestedBy && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)) ? (
                   <img
                     src={displayCurrent.requestedAvatar || `https://cdn.discordapp.com/avatars/${user?.id}/${user?.avatar}.png?size=64`}
                     alt=""
@@ -816,29 +1016,36 @@ function MusicRoom() {
             <div className="queue-heading">
               <div>
                 <h2>
-                  {activeTab === 'queue' ? (
-                    <>
-                      Up next <span className="queue-count">{queue.length}</span>
-                      {aiConfig?.enabled && (
-                        <span className="ai-active-badge" title="AI Auto-Queue is active">
-                          <Sparkles size={9} /> AI
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <>Lyrics</>
+                  Up next <span className="queue-count">{queue.length}</span>
+                  {aiConfig?.enabled && (
+                    <span className="ai-active-badge" title="AI Auto-Queue is active">
+                      <Sparkles size={9} /> AI
+                    </span>
                   )}
                 </h2>
                 <p>
-                  {activeTab === 'queue'
-                    ? 'Your shared soundtrack.'
-                    : (!stopped && current
-                      ? `Synchronized lyrics for ${displayCurrent.title}`
-                      : 'Real-time synchronized lyrics.')}
+                  Your shared soundtrack.
                 </p>
               </div>
               <div className="flex items-center gap-1">
-                {activeTab === 'queue' && (
+                <div className="flex items-center gap-1.5">
+                  {/* Standalone AI Search & Preview Button */}
+                  <button
+                    id="ai-search-preview-btn"
+                    aria-label="AI Search & Preview"
+                    onClick={() => {
+                      setAiPanelTab('search');
+                      setAiPanelOpen(true);
+                    }}
+                    disabled={!isVoiceConnected}
+                    className="ai-search-preview-btn"
+                    title="Describe a vibe to search & preview AI song suggestions"
+                  >
+                    <Sparkles size={13} className="text-primary" />
+                    <span>AI Search</span>
+                  </button>
+
+                  {/* Auto-fill Toggle + Rules Config */}
                   <div className="ai-outside-control">
                     <button
                       id="ai-auto-toggle-outside"
@@ -852,11 +1059,11 @@ function MusicRoom() {
                           handleAISaveConfig(!aiAutoEnabled);
                         }
                       }}
-                      disabled={!isVoiceConnected}
+                      disabled={!isVoiceConnected || !summoned}
                       className={`ai-outside-switch ${aiAutoEnabled ? 'is-active' : ''}`}
-                      title={aiAutoEnabled ? `Auto-fill is ON ("${aiConfig?.prompt || 'Active'}") — click to turn off` : 'Turn on AI Auto-fill'}
+                      title={!summoned ? 'Summon bot to voice before enabling Auto-fill' : aiAutoEnabled ? `Auto-fill is ON ("${aiConfig?.prompt || 'Active'}") — click to turn off` : 'Turn on AI Auto-fill'}
                     >
-                      <Sparkles size={13} className={aiAutoEnabled ? "ai-outside-sparkle animate-pulse text-primary" : ""} />
+                      <Radio size={12} className={aiAutoEnabled ? "text-primary animate-pulse" : ""} />
                       <span className="ai-outside-label">Auto-fill</span>
                       <span className={`ai-outside-indicator ${aiAutoEnabled ? 'on' : 'off'}`}>
                         {aiAutoEnabled ? 'ON' : 'OFF'}
@@ -865,15 +1072,18 @@ function MusicRoom() {
                     <button
                       id="ai-autoqueue-btn"
                       aria-label="AI Auto-Queue"
-                      onClick={() => setAiPanelOpen(true)}
+                      onClick={() => {
+                        setAiPanelTab('autoqueue');
+                        setAiPanelOpen(true);
+                      }}
                       disabled={!isVoiceConnected}
                       className={`ai-outside-settings-btn ${aiConfig?.enabled ? 'text-primary' : ''}`}
-                      title={aiConfig?.prompt ? `Current Auto-fill vibe: "${aiConfig.prompt}"` : 'AI Auto-Queue & Search'}
+                      title={aiConfig?.prompt ? `Current Auto-fill vibe: "${aiConfig.prompt}" (Click to edit rules)` : 'Auto-fill Rules & Settings'}
                     >
-                      <Settings2 size={14} />
+                      <Settings2 size={13} />
                     </button>
                   </div>
-                )}
+                </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button aria-label="Panel options" className="queue-options-btn">
@@ -951,6 +1161,48 @@ function MusicRoom() {
               )}
             </div>
 
+            {/* Auto-queue Vibe Display */}
+            {autoQueueDisplayPrompt && (
+              <div
+                className="autoqueue-vibe-banner"
+                onClick={() => {
+                  setAiPanelTab('autoqueue');
+                  setAiPanelOpen(true);
+                }}
+                role="button"
+                tabIndex={0}
+                title="Click to view or edit Auto-fill rules & vibe"
+              >
+                <div className="autoqueue-vibe-label">
+                  <Radio size={11} className={aiAutoEnabled ? "text-primary animate-pulse" : "text-muted-foreground"} />
+                  <span>Auto-queue:</span>
+                </div>
+                <div className="autoqueue-vibe-prompt-wrap">
+                  <MarqueeText
+                    text={autoQueueDisplayPrompt}
+                    speed={22}
+                    className="autoqueue-prompt-marquee"
+                    contentClassName="text-[12px] font-medium text-foreground"
+                  />
+                </div>
+                <div className="autoqueue-vibe-author">
+                  <span className="autoqueue-vibe-sep">set by</span>
+                  {autoQueueAuthorAvatar ? (
+                    <img
+                      src={autoQueueAuthorAvatar}
+                      alt=""
+                      className="autoqueue-author-avatar"
+                    />
+                  ) : (
+                    <div className="autoqueue-author-fallback">
+                      <User size={10} />
+                    </div>
+                  )}
+                  <span className="autoqueue-author-name">{autoQueueAuthorName}</span>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'queue' && (
               <form className="add-track" onSubmit={handleAddSong}>
                 <Music2 size={18} />
@@ -960,7 +1212,7 @@ function MusicRoom() {
             )}
 
             {activeTab === 'queue' ? (
-              <>
+              <div className="flex-1 flex flex-col min-h-0">
                 <div className="queue-list">{paginatedQueue.map((track) => {
                   const isCurrent = !stopped && (queueIndex >= 0 ? track.originalIndex === queueIndex : (Boolean(current) && track.title === current?.title));
                   return (
@@ -975,7 +1227,19 @@ function MusicRoom() {
                         )}
                       </span>
                       <div className="queue-art">
-                        <img src={track.image} alt="" loading="lazy" width={56} height={56} />
+                        <img
+                          src={optimizeThumbnailUrl(track.image)}
+                          alt=""
+                          loading="lazy"
+                          width={56}
+                          height={56}
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (target.src.includes('/maxresdefault.jpg')) {
+                              target.src = target.src.replace('/maxresdefault.jpg', '/mqdefault.jpg');
+                            }
+                          }}
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
@@ -987,18 +1251,13 @@ function MusicRoom() {
                         </Button>
                       </div>
                       <div className="queue-track-info">
-                        <h3 className="flex items-center gap-1.5 min-w-0">
+                        <h3 className="min-w-0">
                           <MarqueeText
                             text={track.title}
-                            className="flex-1 min-w-0"
+                            className="w-full min-w-0"
                             active={isCurrent || undefined}
                             hoverOnly={!isCurrent}
                           />
-                          {isCurrent && (
-                            <span className="now-playing-badge">
-                              {playing ? 'NOW PLAYING' : 'PAUSED'}
-                            </span>
-                          )}
                         </h3>
                         <MarqueeText
                           text={track.artist}
@@ -1008,7 +1267,13 @@ function MusicRoom() {
                         />
                         <div className="queue-requester">
                           <span>Added by</span>
-                          {(track.requestedAvatar || (user && user.username === track.requestedBy && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)) ? (
+                          {(track.requestedBy === 'AI Auto-Queue' || track.requestedAvatar === logoIcon || track.requestedAvatar === '/logo_icon.svg') ? (
+                            <img
+                              src={logoIcon}
+                              alt="AI Auto-Queue"
+                              className="w-3.5 h-3.5 rounded-full bg-[#141c21] p-0.5 border border-[#00E676]/35 !object-contain shrink-0"
+                            />
+                          ) : (track.requestedAvatar || (user && user.username === track.requestedBy && user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null)) ? (
                             <img
                               src={track.requestedAvatar || `https://cdn.discordapp.com/avatars/${user?.id}/${user?.avatar}.png?size=64`}
                               alt=""
@@ -1022,6 +1287,11 @@ function MusicRoom() {
                           <span className="queue-requester-name">{track.requestedBy || 'Unknown'}</span>
                         </div>
                       </div>
+                      {isCurrent && (
+                        <span className="now-playing-badge">
+                          {playing ? 'NOW PLAYING' : 'PAUSED'}
+                        </span>
+                      )}
                       <span className="track-duration">{formatTime(track.duration)}</span>
                       <IconControl label={`Remove ${track.title}`} onClick={() => handleRemove(track.originalIndex ?? 0)} className="remove-track">
                         <X size={15} />
@@ -1037,7 +1307,7 @@ function MusicRoom() {
                   </div>
                 )}
                 <div className="queue-bottom"><ListMusic size={15} /><span>{queue.length} tracks in the queue</span><span className="queue-bottom-dot" /><span>Made for sharing</span></div>
-              </>
+              </div>
             ) : (
               <div className="flex-1 flex flex-col min-h-0">
                 <div className="lyrics-view" ref={lyricsContainerRef}>
@@ -1082,12 +1352,31 @@ function MusicRoom() {
                             line.words.map((w, wIdx) => {
                               const isSung = effectiveTime >= w.begin;
                               const isSinging = effectiveTime >= w.begin && effectiveTime <= w.end;
+
+                              let hasSpace = true;
+                              if (w.trailing_space !== undefined) {
+                                hasSpace = !!w.trailing_space;
+                              } else if (w.text.endsWith(' ')) {
+                                hasSpace = true;
+                              } else if (line.words && wIdx < line.words.length - 1 && line.text) {
+                                const nextWord = line.words[wIdx + 1];
+                                if (nextWord) {
+                                  const curClean = w.text.trim();
+                                  const nextClean = nextWord.text.trim();
+                                  if (curClean && nextClean && line.text.includes(curClean + nextClean)) {
+                                    hasSpace = false;
+                                  }
+                                }
+                              } else if (wIdx === line.words.length - 1) {
+                                hasSpace = false;
+                              }
+
                               return (
                                 <span
                                   key={wIdx}
-                                  className={`lyrics-word ${isSinging ? 'is-singing' : isSung ? 'is-sung' : ''}`}
+                                  className={`lyrics-word ${isSinging ? 'is-singing' : isSung ? 'is-sung' : ''} ${hasSpace ? 'has-space' : ''}`}
                                 >
-                                  {w.text}
+                                  {w.text.trim()}
                                 </span>
                               );
                             })
@@ -1157,7 +1446,9 @@ function MusicRoom() {
               <DialogDescription className="ai-panel-desc">
                 {aiPanelTab === 'search'
                   ? 'Describe a vibe to preview and curate songs. Nothing is queued automatically.'
-                  : 'Configure automatic queue replenishment when songs run low during playback.'}
+                  : aiPanelTab === 'autoqueue'
+                  ? 'Configure automatic queue replenishment when songs run low during playback.'
+                  : 'Contribute and view shared Gemini API keys to keep AI recommendations fast and resilient.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -1168,17 +1459,28 @@ function MusicRoom() {
                 className={`ai-modal-tab ${aiPanelTab === 'search' ? 'is-active' : ''}`}
                 onClick={() => setAiPanelTab('search')}
               >
-                <Sparkles size={13} />
-                <span>Search & Preview</span>
+                <Sparkles size={13} className="shrink-0" />
+                <span>Search &amp; Preview</span>
               </button>
               <button
                 type="button"
                 className={`ai-modal-tab ${aiPanelTab === 'autoqueue' ? 'is-active' : ''}`}
                 onClick={() => setAiPanelTab('autoqueue')}
               >
-                <Radio size={13} />
+                <Radio size={13} className="shrink-0" />
                 <span>Auto-fill Rules</span>
                 {aiAutoEnabled && <span className="ai-modal-tab-badge">ON</span>}
+              </button>
+              <button
+                type="button"
+                className={`ai-modal-tab ${aiPanelTab === 'keys' ? 'is-active' : ''}`}
+                onClick={() => { setAiPanelTab('keys'); fetchKeys(); }}
+              >
+                <Key size={13} className="shrink-0" />
+                <span>Key Pool</span>
+                <span className={`ai-modal-tab-badge ${activeKeysCount > 0 ? '' : 'text-amber-400 bg-amber-500/20'}`}>
+                  {activeKeysCount}
+                </span>
               </button>
             </div>
 
@@ -1297,14 +1599,19 @@ function MusicRoom() {
                             <div className="ai-song-thumb-wrapper">
                               {song.thumbnail ? (
                                 <img
-                                  src={song.thumbnail}
+                                  src={optimizeThumbnailUrl(song.thumbnail)}
                                   alt=""
                                   className="ai-song-thumb"
                                   loading="lazy"
                                   onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                    if (e.currentTarget.nextElementSibling) {
-                                      (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
+                                    const target = e.currentTarget;
+                                    if (target.src.includes('/maxresdefault.jpg')) {
+                                      target.src = target.src.replace('/maxresdefault.jpg', '/mqdefault.jpg');
+                                      return;
+                                    }
+                                    target.style.display = 'none';
+                                    if (target.nextElementSibling) {
+                                      (target.nextElementSibling as HTMLElement).style.display = 'flex';
                                     }
                                   }}
                                 />
@@ -1339,6 +1646,8 @@ function MusicRoom() {
                       type="button"
                       className="ai-use-vibe-btn"
                       onClick={handleUseSearchVibeForAutoQueue}
+                      disabled={!summoned}
+                      title={!summoned ? 'Summon bot to voice before enabling Auto-fill' : undefined}
                     >
                       <Sparkles size={13} />
                       <span>Use this vibe for background Auto-fill</span>
@@ -1346,7 +1655,7 @@ function MusicRoom() {
                   </div>
                 )}
               </>
-            ) : (
+            ) : aiPanelTab === 'autoqueue' ? (
               <>
                 {/* Auto-Queue Standing Vibe Banner */}
                 <div className="ai-active-vibe-banner">
@@ -1374,8 +1683,8 @@ function MusicRoom() {
                     className="ai-prompt-textarea"
                     rows={2}
                     placeholder="e.g. lo-fi chill buổi tối, K-pop sôi động, nhạc jazz cà phê..."
-                    value={aiAutoPrompt}
-                    onChange={e => setAiAutoPrompt(e.target.value)}
+                    value={formAutoPrompt}
+                    onChange={e => setFormAutoPrompt(e.target.value)}
                   />
                 </div>
 
@@ -1387,13 +1696,13 @@ function MusicRoom() {
                       id="ai-auto-count-input"
                       type="number"
                       className="ai-number-input"
-                      value={aiCount}
+                      value={formCount}
                       min={1}
                       max={20}
                       onChange={e => {
                         const parsed = Number(e.target.value);
                         if (!Number.isFinite(parsed)) return;
-                        setAiCount(Math.max(1, Math.min(20, parsed)));
+                        setFormCount(Math.max(1, Math.min(20, parsed)));
                       }}
                     />
                   </div>
@@ -1403,34 +1712,41 @@ function MusicRoom() {
                       id="ai-threshold-input"
                       type="number"
                       className="ai-number-input"
-                      value={aiThreshold}
+                      value={formThreshold}
                       min={1}
                       max={10}
                       onChange={e => {
                         const parsed = Number(e.target.value);
                         if (!Number.isFinite(parsed)) return;
-                        setAiThreshold(Math.max(1, Math.min(10, parsed)));
+                        setFormThreshold(Math.max(1, Math.min(10, parsed)));
                       }}
                     />
                   </div>
                 </div>
 
-                {/* Auto-fill toggle */}
+                {!summoned && (
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2">
+                    <span>⚠️ The bot is not currently in a voice channel. Summon the bot to voice before enabling Auto-fill.</span>
+                  </div>
+                )}
+
+                {/* Auto-fill toggle (Option A: local form toggle, committed upon Save) */}
                 <div className="ai-toggle-row">
                   <button
                     id="ai-auto-toggle"
                     role="switch"
-                    aria-checked={aiAutoEnabled}
-                    className={`ai-switch ${aiAutoEnabled ? 'is-on' : ''}`}
-                    onClick={() => handleAISaveConfig(!aiAutoEnabled)}
-                    disabled={!aiAutoPrompt.trim() && !aiConfig?.prompt}
-                    title={aiAutoPrompt.trim() || aiConfig?.prompt ? undefined : 'Enter a prompt first'}
+                    aria-label="Enable Auto-fill when queue runs low"
+                    aria-checked={formAutoEnabled}
+                    className={`ai-switch ${formAutoEnabled ? 'is-on' : ''}`}
+                    onClick={() => setFormAutoEnabled(!formAutoEnabled)}
+                    disabled={!summoned}
+                    title={!summoned ? 'Bot must be summoned to voice first' : undefined}
                   >
                     <span className="ai-switch-thumb" />
                   </button>
                   <span className="ai-toggle-label">
                     Enable Auto-fill when queue runs low
-                    {aiAutoEnabled && <span className="ai-on-pill">ON</span>}
+                    {formAutoEnabled && <span className="ai-on-pill">ON</span>}
                   </span>
                 </div>
 
@@ -1438,11 +1754,155 @@ function MusicRoom() {
                 <Button
                   id="ai-save-autoqueue-btn"
                   className="ai-suggest-btn"
-                  onClick={() => handleAISaveConfig(aiAutoEnabled)}
-                  disabled={!aiAutoPrompt.trim()}
+                  onClick={() => {
+                    handleAISaveConfig(formAutoEnabled, formAutoPrompt, formCount, formThreshold);
+                    setAiPanelOpen(false);
+                  }}
+                  disabled={!summoned || (formAutoEnabled && !formAutoPrompt.trim())}
+                  title={!summoned ? 'Bot must be summoned to voice first' : undefined}
                 >
                   <Check size={15} /> Save Auto-fill Settings
                 </Button>
+              </>
+            ) : (
+              <>
+                {/* Community Key Pool Tab */}
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl border border-primary/20 bg-primary/5 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Key size={16} className="text-primary" />
+                        <span className="font-semibold text-sm">Community Gemini Pool</span>
+                      </div>
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                        activeKeysCount > 0
+                          ? 'bg-primary/15 text-primary border border-primary/25'
+                          : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                      }`}>
+                        {activeKeysCount} Healthy / {totalKeysCount} Total
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      MusicBỏTúi operates 100% free! You can support the server by contributing your free Gemini API key from Google AI Studio. Keys are automatically rotated and failover to prevent rate limits.
+                    </p>
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary font-medium hover:underline self-start pt-0.5"
+                    >
+                      Get your free Gemini Key from Google AI Studio <ArrowUpRight size={12} />
+                    </a>
+                  </div>
+
+                  {/* Add Key Form */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-foreground">Contribute a Free Gemini Key</label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        placeholder="Paste your Gemini API key (e.g. AIzaSy...)"
+                        value={newKeyInput}
+                        onChange={e => setNewKeyInput(e.target.value)}
+                        disabled={keySubmitting}
+                        className="font-mono text-xs"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleContributeKey}
+                        disabled={keySubmitting || !newKeyInput.trim()}
+                        className="shrink-0"
+                      >
+                        {keySubmitting ? (
+                          <><Loader2 size={14} className="animate-spin mr-1" /> Verifying...</>
+                        ) : (
+                          <><Check size={14} className="mr-1" /> Verify &amp; Add</>
+                        )}
+                      </Button>
+                    </div>
+                    {keySubmitError && (
+                      <p className="text-xs text-destructive font-medium">{keySubmitError}</p>
+                    )}
+                    {keySubmitSuccess && (
+                      <p className="text-xs text-primary font-medium">{keySubmitSuccess}</p>
+                    )}
+                  </div>
+
+                  {/* Keys List */}
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                      <span>Contributed Keys</span>
+                      <button
+                        type="button"
+                        onClick={fetchKeys}
+                        className="hover:text-foreground inline-flex items-center gap-1 transition-colors"
+                      >
+                        <RefreshCw size={11} /> Refresh
+                      </button>
+                    </div>
+
+                    <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1">
+                      {geminiKeys.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-muted-foreground border border-dashed border-white/10 rounded-xl">
+                          No community keys yet. Be the first to contribute a free key!
+                        </div>
+                      ) : (
+                        geminiKeys.map(k => (
+                          <div
+                            key={k.id}
+                            className="p-2.5 rounded-lg border border-white/10 bg-white/5 flex items-center justify-between text-xs gap-3"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  k.status === 'healthy'
+                                    ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+                                    : k.status === 'quota_exceeded'
+                                    ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                                    : 'bg-rose-400'
+                                }`}
+                              />
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-[11px] font-semibold text-foreground">
+                                    {k.masked_key}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    by {k.added_by_username}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground flex items-center gap-2">
+                                  <span>Used: {k.total_uses} times</span>
+                                  {k.status === 'quota_exceeded' && (
+                                    <span className="text-amber-400 font-medium">
+                                      {k.cooldown_remaining_seconds > 0
+                                        ? `Quota full · Resets in ${Math.ceil(k.cooldown_remaining_seconds / 60)}m`
+                                        : 'Cooling down'}
+                                    </span>
+                                  )}
+                                  {k.status === 'invalid' && (
+                                    <span className="text-rose-400 font-medium">Invalid or Revoked</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {isKeyAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteKey(k.id)}
+                                aria-label="Delete key"
+                                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
               </>
             )}
           </DialogContent>
