@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, getAIAutoQueue, setAIAutoQueue, type GuildSession, type AISong, type AIAutoQueueConfig } from '@/lib/api'
+import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, aiConfirmBatch, getAIAutoQueue, setAIAutoQueue, type GuildSession, type AISong, type AIAutoQueueConfig } from '@/lib/api'
 import { MarqueeText } from '@/components/MarqueeText'
 
 import ocean from '@/assets/ocean-drive.jpg'
@@ -94,18 +94,23 @@ function MusicRoom() {
   const [userOffset, setUserOffset] = useState<number>(0)
   const activeLineRef = useRef<HTMLDivElement | null>(null)
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null)
+  const queuePanelRef = useRef<HTMLDivElement | null>(null)
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const syncRef = useRef<{ basePos: number; syncTime: number }>({ basePos: 0, syncTime: performance.now() })
 
   // ---------------------------------------------------------------------------
   // AI Auto-Queue state
   // ---------------------------------------------------------------------------
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
-  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiPanelTab, setAiPanelTab] = useState<'search' | 'autoqueue'>('search')
+  const [aiSearchPrompt, setAiSearchPrompt] = useState('')
+  const [aiAutoPrompt, setAiAutoPrompt] = useState('')
   const [aiCount, setAiCount] = useState(5)
   const [aiThreshold, setAiThreshold] = useState(2)
   const [aiAutoEnabled, setAiAutoEnabled] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiAdding, setAiAdding] = useState<Set<string>>(new Set())
+  const [aiAddingAll, setAiAddingAll] = useState(false)
   const [aiSuggestions, setAiSuggestions] = useState<AISong[]>([])
   const [aiError, setAiError] = useState('')
   const [aiConfig, setAiConfig] = useState<AIAutoQueueConfig | null>(null)
@@ -133,44 +138,78 @@ function MusicRoom() {
     return () => clearInterval(timer);
   }, [playing, stopped]);
 
-  // Load lyrics when current track changes
-  useEffect(() => {
+  const fetchLyrics = useCallback(async (isRetry = false) => {
     if (!currentGuildId || !current || stopped) {
       setLyrics(null);
+      setLyricsLoading(false);
+      return;
+    }
+
+    if (!isRetry) {
+      setLyricsLoading(true);
+    }
+
+    try {
+      const res = await getLyrics(currentGuildId);
+      if (res && res.lyrics) {
+        setLyrics(res.lyrics);
+        setLyricsLoading(false);
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+          retryTimeoutRef.current = null;
+        }
+      } else {
+        setLyrics(null);
+        setLyricsLoading(false);
+        if (!isRetry) {
+          retryTimeoutRef.current = setTimeout(() => {
+            fetchLyrics(true);
+          }, 2000);
+        }
+      }
+    } catch {
+      setLyrics(null);
+      setLyricsLoading(false);
+      if (!isRetry) {
+        retryTimeoutRef.current = setTimeout(() => {
+          fetchLyrics(true);
+        }, 2000);
+      }
+    }
+  }, [currentGuildId, current?.title, stopped]);
+
+  // Load lyrics when current track changes
+  useEffect(() => {
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+
+    if (!currentGuildId || !current || stopped) {
+      setLyrics(null);
+      setLyricsLoading(false);
       return;
     }
 
     const savedOffset = localStorage.getItem(`offset_${current.title}`);
     setUserOffset(savedOffset ? parseFloat(savedOffset) : 0);
 
-    let isSubscribed = true;
-    setLyricsLoading(true);
-    getLyrics(currentGuildId)
-      .then((res: any) => {
-        if (!isSubscribed) return;
-        if (res && res.lyrics) {
-          setLyrics(res.lyrics);
-        } else {
-          setLyrics(null);
-        }
-      })
-      .catch(() => {
-        if (isSubscribed) setLyrics(null);
-      })
-      .finally(() => {
-        if (isSubscribed) setLyricsLoading(false);
-      });
+    fetchLyrics(false);
 
     return () => {
-      isSubscribed = false;
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
     };
-  }, [currentGuildId, current?.title, stopped]);
+  }, [currentGuildId, current?.title, stopped, fetchLyrics]);
 
   // Load AI Auto-Queue config when guild changes
   useEffect(() => {
     if (!currentGuildId || !user) {
       setAiConfig(null);
-      setAiPrompt('');
+      setAiAutoPrompt('');
+      setAiSearchPrompt('');
       setAiCount(5);
       setAiThreshold(2);
       setAiAutoEnabled(false);
@@ -180,7 +219,7 @@ function MusicRoom() {
     }
     let cancelled = false;
     setAiConfig(null);
-    setAiPrompt('');
+    setAiAutoPrompt('');
     setAiCount(5);
     setAiThreshold(2);
     setAiAutoEnabled(false);
@@ -190,7 +229,7 @@ function MusicRoom() {
       .then(cfg => {
         if (cancelled) return;
         setAiConfig(cfg);
-        setAiPrompt(cfg.prompt || '');
+        setAiAutoPrompt(cfg.prompt || '');
         setAiCount(cfg.count ?? 5);
         setAiThreshold(cfg.threshold ?? 2);
         setAiAutoEnabled(cfg.enabled ?? false);
@@ -198,7 +237,7 @@ function MusicRoom() {
       .catch(() => {
         if (cancelled) return;
         setAiConfig(null);
-        setAiPrompt('');
+        setAiAutoPrompt('');
         setAiCount(5);
         setAiThreshold(2);
         setAiAutoEnabled(false);
@@ -221,13 +260,42 @@ function MusicRoom() {
   }, [lyrics, effectiveTime]);
 
   useEffect(() => {
-    if (activeTab === 'lyrics' && activeLineRef.current) {
-      activeLineRef.current.scrollIntoView({
+    if (activeTab === 'lyrics' && activeLineRef.current && lyricsContainerRef.current) {
+      const container = lyricsContainerRef.current;
+      const line = activeLineRef.current;
+      const containerHeight = container.clientHeight;
+      const lineOffsetTop = line.offsetTop;
+      const lineHeight = line.clientHeight;
+      const targetScrollTop = lineOffsetTop - (containerHeight / 2) + (lineHeight / 2);
+
+      container.scrollTo({
+        top: Math.max(0, targetScrollTop),
         behavior: 'smooth',
-        block: 'center',
       });
     }
   }, [activeLineIndex, activeTab]);
+
+  const handleTabChange = (tab: 'queue' | 'lyrics') => {
+    setActiveTab(tab);
+    if (tab === 'lyrics' && !lyrics && !lyricsLoading && current && !stopped) {
+      fetchLyrics(false);
+    }
+  };
+
+  const toggleLyrics = () => {
+    setActiveTab((prev) => {
+      const next = prev === 'lyrics' ? 'queue' : 'lyrics';
+      if (next === 'lyrics') {
+        if (!lyrics && !lyricsLoading && current && !stopped) {
+          fetchLyrics(false);
+        }
+        if (typeof window !== 'undefined' && window.innerWidth <= 740 && queuePanelRef.current) {
+          queuePanelRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+      return next;
+    });
+  };
 
   const adjustOffset = (delta: number) => {
     setUserOffset((prev) => {
@@ -501,25 +569,25 @@ function MusicRoom() {
   // ---------------------------------------------------------------------------
 
   const handleAISuggest = useCallback(async () => {
-    if (!aiPrompt.trim() || !currentGuildId || !isVoiceConnected) return;
+    if (!aiSearchPrompt.trim() || !currentGuildId || !isVoiceConnected) return;
     setAiLoading(true);
     setAiError('');
     setAiSuggestions([]);
     try {
-      const res = await aiSuggest(currentGuildId, aiPrompt.trim(), aiCount);
+      const res = await aiSuggest(currentGuildId, aiSearchPrompt.trim(), aiCount);
       setAiSuggestions(res.songs || []);
     } catch (err: any) {
       setAiError(err?.message || 'AI service unavailable. Check GEMINI_API_KEY.');
     } finally {
       setAiLoading(false);
     }
-  }, [aiPrompt, aiCount, currentGuildId, isVoiceConnected]);
+  }, [aiSearchPrompt, aiCount, currentGuildId, isVoiceConnected]);
 
   const handleAIAddSong = useCallback(async (song: AISong) => {
     if (!currentGuildId || !isVoiceConnected) return;
     setAiAdding(prev => new Set(prev).add(song.url));
     try {
-      await aiConfirmSong(currentGuildId, song.url);
+      await aiConfirmSong(currentGuildId, song);
       setNotice(`Added: ${song.title}`);
       // Remove from preview list after adding
       setAiSuggestions(prev => prev.filter(s => s.url !== song.url));
@@ -531,29 +599,56 @@ function MusicRoom() {
   }, [currentGuildId, isVoiceConnected]);
 
   const handleAIAddAll = useCallback(async () => {
-    if (!currentGuildId || !isVoiceConnected || !aiSuggestions.length) return;
+    if (!currentGuildId || !isVoiceConnected || !aiSuggestions.length || aiAddingAll) return;
     const toAdd = [...aiSuggestions];
-    setAiSuggestions([]);
-    for (const song of toAdd) {
-      try {
-        await aiConfirmSong(currentGuildId, song.url);
-      } catch { /* continue adding rest */ }
+    setAiAddingAll(true);
+    try {
+      const res = await aiConfirmBatch(currentGuildId, toAdd);
+      const added = res?.added_count ?? toAdd.length;
+      setAiSuggestions([]);
+      setNotice(`Added ${added} AI songs to queue`);
+    } catch {
+      // Fallback: sequential confirm with metadata
+      let added = 0;
+      for (const song of toAdd) {
+        try {
+          await aiConfirmSong(currentGuildId, song);
+          added++;
+        } catch { /* continue adding rest */ }
+      }
+      setAiSuggestions([]);
+      setNotice(`Added ${added} AI songs to queue`);
+    } finally {
+      setAiAddingAll(false);
     }
-    setNotice(`Added ${toAdd.length} AI songs to queue`);
-  }, [currentGuildId, isVoiceConnected, aiSuggestions]);
+  }, [currentGuildId, isVoiceConnected, aiSuggestions, aiAddingAll]);
 
-  const handleAISaveConfig = useCallback(async (enabled: boolean) => {
+  const handleAISaveConfig = useCallback(async (enabled: boolean, overridePrompt?: string) => {
     if (!currentGuildId || !isVoiceConnected) return;
-    const cfg: AIAutoQueueConfig = { enabled, prompt: aiPrompt, count: aiCount, threshold: aiThreshold };
+    const targetPrompt = (overridePrompt !== undefined ? overridePrompt : aiAutoPrompt).trim();
+    const cfg: AIAutoQueueConfig = {
+      enabled,
+      prompt: targetPrompt,
+      count: aiCount,
+      threshold: aiThreshold,
+    };
     try {
       await setAIAutoQueue(currentGuildId, cfg);
       setAiConfig(cfg);
       setAiAutoEnabled(enabled);
-      setNotice(enabled ? 'AI Auto-Queue enabled' : 'AI Auto-Queue disabled');
+      if (overridePrompt !== undefined) setAiAutoPrompt(targetPrompt);
+      setNotice(enabled ? `AI Auto-Queue enabled ("${targetPrompt || 'Active'}")` : 'AI Auto-Queue disabled');
     } catch (err: any) {
       setNotice(err?.message || 'Failed to update AI config');
     }
-  }, [currentGuildId, isVoiceConnected, aiPrompt, aiCount, aiThreshold]);
+  }, [currentGuildId, isVoiceConnected, aiAutoPrompt, aiCount, aiThreshold]);
+
+  const handleUseSearchVibeForAutoQueue = useCallback(() => {
+    if (!aiSearchPrompt.trim()) return;
+    setAiAutoPrompt(aiSearchPrompt.trim());
+    handleAISaveConfig(true, aiSearchPrompt.trim());
+    setNotice(`Auto-fill vibe updated to: "${aiSearchPrompt.trim()}" (Auto-fill is ON)`);
+  }, [aiSearchPrompt, handleAISaveConfig]);
 
 
   const handleSkipTo = useCallback(async (index: number) => {
@@ -709,76 +804,159 @@ function MusicRoom() {
                   <IconControl label="Skip track" onClick={handleSkip}><SkipForward className="fill-current" /></IconControl>
                   <span className="absolute -top-2 -right-3 text-[11px] font-medium bg-black/60 text-white px-1.5 py-[1px] rounded pointer-events-none border border-white/10">{skipVotes}/{skipVotesReq || 1}</span>
                 </div>
+                <IconControl label={activeTab === 'lyrics' ? 'View queue' : 'View lyrics'} active={activeTab === 'lyrics'} onClick={toggleLyrics}><AudioLines /></IconControl>
                 <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="text-muted-foreground" aria-label="More playback options"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem onClick={() => setNotice(`${displayCurrent.title} · ${displayCurrent.artist}`)}>Track details</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             </div>
             <div className="volume-controls"><IconControl label={volume ? 'Mute volume' : 'Unmute volume'} onClick={() => handleVolume(volume ? 0 : 75)}>{volume ? <Volume2 /> : <VolumeX />}</IconControl><Slider aria-label="Volume" value={[volume]} onValueChange={value => handleVolume(value[0] ?? 0)} max={100} step={1} /><span className="volume-value">{volume}%</span></div>
             <div className="player-footer"><Headphones size={14} /><span>Playing in <strong>{currentGuildName}</strong></span><span className="footer-quality">HIGH QUALITY</span></div>
           </section>
 
-          <section className="queue-panel glass-surface" aria-label="Track queue">
+          <section ref={queuePanelRef} className="queue-panel glass-surface" aria-label="Track queue and lyrics">
             <div className="queue-heading">
               <div>
                 <h2>
-                  Up next <span className="queue-count">{queue.length}</span>
-                  {aiConfig?.enabled && (
-                    <span className="ai-active-badge" title="AI Auto-Queue is active">
-                      <Sparkles size={9} /> AI
-                    </span>
+                  {activeTab === 'queue' ? (
+                    <>
+                      Up next <span className="queue-count">{queue.length}</span>
+                      {aiConfig?.enabled && (
+                        <span className="ai-active-badge" title="AI Auto-Queue is active">
+                          <Sparkles size={9} /> AI
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>Lyrics</>
                   )}
                 </h2>
-                <p>Your shared soundtrack.</p>
+                <p>
+                  {activeTab === 'queue'
+                    ? 'Your shared soundtrack.'
+                    : (!stopped && current
+                      ? `Synchronized lyrics for ${displayCurrent.title}`
+                      : 'Real-time synchronized lyrics.')}
+                </p>
               </div>
               <div className="flex items-center gap-1">
-                <button
-                  id="ai-autoqueue-btn"
-                  aria-label="AI Auto-Queue"
-                  onClick={() => setAiPanelOpen(true)}
-                  disabled={!isVoiceConnected}
-                  className={`ai-toggle-btn ${aiConfig?.enabled ? 'is-active' : ''}`}
-                  title="AI Auto-Queue"
-                >
-                  <Sparkles size={15} />
-                </button>
+                {activeTab === 'queue' && (
+                  <div className="ai-outside-control">
+                    <button
+                      id="ai-auto-toggle-outside"
+                      role="switch"
+                      aria-checked={aiAutoEnabled}
+                      onClick={() => {
+                        if (!aiConfig?.prompt && !aiAutoEnabled) {
+                          setAiPanelTab('autoqueue');
+                          setAiPanelOpen(true);
+                        } else {
+                          handleAISaveConfig(!aiAutoEnabled);
+                        }
+                      }}
+                      disabled={!isVoiceConnected}
+                      className={`ai-outside-switch ${aiAutoEnabled ? 'is-active' : ''}`}
+                      title={aiAutoEnabled ? `Auto-fill is ON ("${aiConfig?.prompt || 'Active'}") — click to turn off` : 'Turn on AI Auto-fill'}
+                    >
+                      <Sparkles size={13} className={aiAutoEnabled ? "ai-outside-sparkle animate-pulse text-primary" : ""} />
+                      <span className="ai-outside-label">Auto-fill</span>
+                      <span className={`ai-outside-indicator ${aiAutoEnabled ? 'on' : 'off'}`}>
+                        {aiAutoEnabled ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                    <button
+                      id="ai-autoqueue-btn"
+                      aria-label="AI Auto-Queue"
+                      onClick={() => setAiPanelOpen(true)}
+                      disabled={!isVoiceConnected}
+                      className={`ai-outside-settings-btn ${aiConfig?.enabled ? 'text-primary' : ''}`}
+                      title={aiConfig?.prompt ? `Current Auto-fill vibe: "${aiConfig.prompt}"` : 'AI Auto-Queue & Search'}
+                    >
+                      <Settings2 size={14} />
+                    </button>
+                  </div>
+                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button aria-label="Queue options" className="queue-options-btn">
+                    <button aria-label="Panel options" className="queue-options-btn">
                       <MoreHorizontal size={18} />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={async () => { if (currentGuildId) { try { await controlClear(currentGuildId); setNotice('Queue cleared'); } catch(e: any) { setNotice(e.message || 'Failed to clear queue'); } } }}>
-                      <Trash2 />Clear queue
-                    </DropdownMenuItem>
+                    {activeTab === 'queue' ? (
+                      <DropdownMenuItem onClick={async () => { if (currentGuildId) { try { await controlClear(currentGuildId); setNotice('Queue cleared'); } catch(e: any) { setNotice(e.message || 'Failed to clear queue'); } } }}>
+                        <Trash2 />Clear queue
+                      </DropdownMenuItem>
+                    ) : (
+                      <>
+                        <DropdownMenuItem onClick={() => fetchLyrics(false)}>
+                          <RefreshCw />Refresh lyrics
+                        </DropdownMenuItem>
+                        {userOffset !== 0 && (
+                          <DropdownMenuItem onClick={resetOffset}>
+                            Reset sync offset
+                          </DropdownMenuItem>
+                        )}
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </div>
-            <form className="add-track" onSubmit={handleAddSong}><Music2 size={18} /><Input aria-label="Song search or URL" placeholder="Paste a link or search for a song" value={query} onChange={event => setQuery(event.target.value)} /><Button size="icon" aria-label="Add to queue" disabled={!query.trim()} type="submit"><Plus /></Button></form>
+
             <div className="queue-tabs">
-              <div className="flex items-center gap-2">
+              <div className="tab-pill-group">
                 <Button
                   variant="ghost"
                   className={`queue-tab ${activeTab === 'queue' ? 'active-tab' : ''}`}
-                  onClick={() => setActiveTab('queue')}
+                  onClick={() => handleTabChange('queue')}
                 >
+                  <ListMusic size={14} className="mr-1.5" />
                   Queue
+                  <span className="tab-badge">{queue.length}</span>
                 </Button>
                 <Button
                   variant="ghost"
                   className={`queue-tab ${activeTab === 'lyrics' ? 'active-tab' : ''}`}
-                  onClick={() => setActiveTab('lyrics')}
+                  onClick={() => handleTabChange('lyrics')}
                 >
+                  <AudioLines size={14} className="mr-1.5" />
                   Lyrics
+                  {lyrics && <span className="tab-indicator-dot" title="Lyrics synced" />}
                 </Button>
               </div>
               {activeTab === 'queue' ? (
                 <span>{`${Math.round(total / 60)} min`}</span>
               ) : (
-                <span className="text-[11px] text-muted-foreground">
-                  {lyrics?.provider ? `${lyrics.provider.toUpperCase()} ${lyrics.type === 'syllable' ? '• SYLLABLE' : '• SYNCED'}` : ''}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    {lyrics?.provider ? `${lyrics.provider.toUpperCase()} ${lyrics.type === 'syllable' ? '• SYLLABLE' : '• SYNCED'}` : ''}
+                  </span>
+                  {!stopped && current && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Refresh lyrics"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          onClick={() => fetchLyrics(false)}
+                          disabled={lyricsLoading}
+                        >
+                          <RefreshCw size={12} className={lyricsLoading ? 'animate-spin' : ''} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Refresh lyrics</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               )}
             </div>
+
+            {activeTab === 'queue' && (
+              <form className="add-track" onSubmit={handleAddSong}>
+                <Music2 size={18} />
+                <Input aria-label="Song search or URL" placeholder="Paste a link or search for a song" value={query} onChange={event => setQuery(event.target.value)} />
+                <Button size="icon" aria-label="Add to queue" disabled={!query.trim()} type="submit"><Plus /></Button>
+              </form>
+            )}
 
             {activeTab === 'queue' ? (
               <>
@@ -879,6 +1057,16 @@ function MusicRoom() {
                       <FileText size={26} />
                       <h3>No lyrics found</h3>
                       <p>No synchronized lyrics match this recording.</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 text-xs"
+                        onClick={() => fetchLyrics(false)}
+                        disabled={lyricsLoading}
+                      >
+                        <RefreshCw size={13} className={`mr-1.5 ${lyricsLoading ? 'animate-spin' : ''}`} />
+                        Check again
+                      </Button>
                     </div>
                   ) : (
                     lyrics.lines.map((line, idx) => {
@@ -963,137 +1151,298 @@ function MusicRoom() {
             <DialogHeader>
               <DialogTitle id="ai-panel-title" className="ai-panel-title">
                 <Sparkles size={18} className="text-primary" />
-                AI Auto-Queue
+                AI Music Assistant
               </DialogTitle>
               <DialogDescription className="ai-panel-desc">
-                Describe a mood, genre, or style — AI will find matching songs and add them to the queue.
+                {aiPanelTab === 'search'
+                  ? 'Describe a vibe to preview and curate songs. Nothing is queued automatically.'
+                  : 'Configure automatic queue replenishment when songs run low during playback.'}
               </DialogDescription>
             </DialogHeader>
 
-            {/* Prompt textarea */}
-            <div className="ai-field">
-              <label htmlFor="ai-prompt-input" className="ai-label">Your vibe</label>
-              <textarea
-                id="ai-prompt-input"
-                className="ai-prompt-textarea"
-                rows={2}
-                placeholder="e.g. lo-fi chill buổi tối, K-pop sôi động, nhạc jazz cà phê..."
-                value={aiPrompt}
-                onChange={e => setAiPrompt(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAISuggest(); } }}
-                disabled={aiLoading}
-              />
-            </div>
-
-            {/* Config row */}
-            <div className="ai-config-row">
-              <div className="ai-config-item">
-                <label htmlFor="ai-count-input" className="ai-label">Songs to add</label>
-                <input
-                  id="ai-count-input"
-                  type="number"
-                  className="ai-number-input"
-                  value={aiCount}
-                  min={1}
-                  max={20}
-                  onChange={e => {
-                    const parsed = Number(e.target.value);
-                    if (!Number.isFinite(parsed)) return;
-                    setAiCount(Math.max(1, Math.min(20, parsed)));
-                  }}
-                />
-              </div>
-              <div className="ai-config-item">
-                <label htmlFor="ai-threshold-input" className="ai-label">Auto-fill when &lt; songs left</label>
-                <input
-                  id="ai-threshold-input"
-                  type="number"
-                  className="ai-number-input"
-                  value={aiThreshold}
-                  min={1}
-                  max={10}
-                  onChange={e => {
-                    const parsed = Number(e.target.value);
-                    if (!Number.isFinite(parsed)) return;
-                    setAiThreshold(Math.max(1, Math.min(10, parsed)));
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Auto-fill toggle */}
-            <div className="ai-toggle-row">
+            {/* Modal Tabs */}
+            <div className="ai-modal-tabs">
               <button
-                id="ai-auto-toggle"
-                role="switch"
-                aria-checked={aiAutoEnabled}
-                className={`ai-switch ${aiAutoEnabled ? 'is-on' : ''}`}
-                onClick={() => handleAISaveConfig(!aiAutoEnabled)}
-                disabled={!aiPrompt.trim()}
-                title={aiPrompt.trim() ? undefined : 'Enter a prompt first'}
+                type="button"
+                className={`ai-modal-tab ${aiPanelTab === 'search' ? 'is-active' : ''}`}
+                onClick={() => setAiPanelTab('search')}
               >
-                <span className="ai-switch-thumb" />
+                <Sparkles size={13} />
+                <span>Search & Preview</span>
               </button>
-              <span className="ai-toggle-label">
-                Auto-fill when queue runs low
-                {aiAutoEnabled && <span className="ai-on-pill">ON</span>}
-              </span>
+              <button
+                type="button"
+                className={`ai-modal-tab ${aiPanelTab === 'autoqueue' ? 'is-active' : ''}`}
+                onClick={() => setAiPanelTab('autoqueue')}
+              >
+                <Radio size={13} />
+                <span>Auto-fill Rules</span>
+                {aiAutoEnabled && <span className="ai-modal-tab-badge">ON</span>}
+              </button>
             </div>
 
-            {/* Suggest button */}
-            <Button
-              id="ai-suggest-btn"
-              className="ai-suggest-btn"
-              onClick={handleAISuggest}
-              disabled={aiLoading || !aiPrompt.trim() || !isVoiceConnected}
-            >
-              {aiLoading
-                ? <><Loader2 size={15} className="animate-spin" /> Searching…</>
-                : <><Sparkles size={15} /> Find songs</>}
-            </Button>
-
-            {/* Error */}
-            {aiError && (
-              <p className="ai-error" role="alert">{aiError}</p>
-            )}
-
-            {/* Preview list */}
-            {aiSuggestions.length > 0 && (
-              <div className="ai-suggestions">
-                <div className="ai-suggestions-header">
-                  <span className="ai-suggestions-label">{aiSuggestions.length} suggestions</span>
-                  <button className="ai-add-all-btn" onClick={handleAIAddAll} disabled={!isVoiceConnected}>
-                    <Plus size={12} /> Add all
-                  </button>
+            {aiPanelTab === 'search' ? (
+              <>
+                {/* Search Prompt textarea */}
+                <div className="ai-field">
+                  <label htmlFor="ai-search-prompt-input" className="ai-label">Your vibe</label>
+                  <textarea
+                    id="ai-search-prompt-input"
+                    className="ai-prompt-textarea"
+                    rows={2}
+                    placeholder="e.g. lo-fi chill buổi tối, K-pop sôi động, jazz cà phê..."
+                    value={aiSearchPrompt}
+                    onChange={e => setAiSearchPrompt(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAISuggest(); } }}
+                    disabled={aiLoading}
+                  />
                 </div>
-                <div className="ai-suggestions-list no-scrollbar">
-                  {aiSuggestions.map((song, i) => {
-                    const adding = aiAdding.has(song.url);
-                    return (
-                      <div key={`${song.url}-${i}`} className="ai-song-row">
-                        {song.thumbnail ? (
-                          <img src={song.thumbnail} alt="" className="ai-song-thumb" loading="lazy" />
-                        ) : (
-                          <div className="ai-song-thumb ai-song-thumb-placeholder"><Music2 size={14} /></div>
-                        )}
-                        <div className="ai-song-info">
-                          <div className="ai-song-title">{song.title}</div>
-                          <div className="ai-song-artist">{song.artist}</div>
-                        </div>
-                        <span className="ai-song-duration">{formatTime(song.duration)}</span>
-                        <button
-                          aria-label={`Add ${song.title}`}
-                          className="ai-song-add-btn"
-                          onClick={() => handleAIAddSong(song)}
-                          disabled={adding || !isVoiceConnected}
-                        >
-                          {adding ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                        </button>
+
+                {/* Config row for search */}
+                <div className="ai-config-row">
+                  <div className="ai-config-item">
+                    <label htmlFor="ai-count-input" className="ai-label">Songs to preview</label>
+                    <input
+                      id="ai-count-input"
+                      type="number"
+                      className="ai-number-input"
+                      value={aiCount}
+                      min={1}
+                      max={20}
+                      onChange={e => {
+                        const parsed = Number(e.target.value);
+                        if (!Number.isFinite(parsed)) return;
+                        setAiCount(Math.max(1, Math.min(20, parsed)));
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Suggest button */}
+                <Button
+                  id="ai-suggest-btn"
+                  className={`ai-suggest-btn ${aiLoading ? 'is-thinking' : ''}`}
+                  onClick={handleAISuggest}
+                  disabled={aiLoading || !aiSearchPrompt.trim() || !isVoiceConnected}
+                >
+                  {aiLoading ? (
+                    <span className="ai-btn-thinking-state">
+                      <Sparkles size={16} className="ai-btn-thinking-sparkle" />
+                      <span>AI is thinking</span>
+                      <span className="ai-btn-thinking-dots" aria-hidden="true">
+                        <span className="ai-dot-pulse dot-1" />
+                        <span className="ai-dot-pulse dot-2" />
+                        <span className="ai-dot-pulse dot-3" />
+                      </span>
+                    </span>
+                  ) : (
+                    <><Sparkles size={15} /> Find songs</>
+                  )}
+                </Button>
+
+                {/* Error */}
+                {aiError && (
+                  <p className="ai-error" role="alert">{aiError}</p>
+                )}
+
+                {/* Thinking Visualizer when loading */}
+                {aiLoading && (
+                  <div className="ai-thinking-card" role="status" aria-live="polite">
+                    <div className="ai-thinking-glow-core">
+                      <div className="ai-thinking-ring ring-1" />
+                      <div className="ai-thinking-ring ring-2" />
+                      <div className="ai-thinking-orb">
+                        <Sparkles size={20} className="ai-thinking-icon" />
                       </div>
-                    );
-                  })}
+                    </div>
+                    <div className="ai-thinking-meta">
+                      <span className="ai-thinking-title">Tuning into your vibe</span>
+                      <span className="ai-thinking-sub">Curating matches from YouTube Music…</span>
+                    </div>
+                    <div className="ai-thinking-bars" aria-hidden="true">
+                      <span className="ai-wave-bar bar-1" />
+                      <span className="ai-wave-bar bar-2" />
+                      <span className="ai-wave-bar bar-3" />
+                      <span className="ai-wave-bar bar-4" />
+                      <span className="ai-wave-bar bar-5" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Preview list */}
+                {!aiLoading && aiSuggestions.length > 0 && (
+                  <div className="ai-suggestions">
+                    <div className="ai-suggestions-header">
+                      <span className="ai-suggestions-label">{aiSuggestions.length} suggestions</span>
+                      <button
+                        className="ai-add-all-btn"
+                        onClick={handleAIAddAll}
+                        disabled={!isVoiceConnected || aiAddingAll}
+                      >
+                        {aiAddingAll ? (
+                          <span className="ai-btn-inline-pulse">
+                            <Sparkles size={12} className="ai-btn-thinking-sparkle" /> Adding all…
+                          </span>
+                        ) : (
+                          <><Plus size={12} /> Add all</>
+                        )}
+                      </button>
+                    </div>
+                    <div className="ai-suggestions-list no-scrollbar">
+                      {aiSuggestions.map((song, i) => {
+                        const adding = aiAdding.has(song.url);
+                        return (
+                          <div key={`${song.url}-${i}`} className="ai-song-row">
+                            <div className="ai-song-thumb-wrapper">
+                              {song.thumbnail ? (
+                                <img
+                                  src={song.thumbnail}
+                                  alt=""
+                                  className="ai-song-thumb"
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    if (e.currentTarget.nextElementSibling) {
+                                      (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
+                                    }
+                                  }}
+                                />
+                              ) : null}
+                              <div
+                                className="ai-song-thumb ai-song-thumb-placeholder"
+                                style={song.thumbnail ? { display: 'none' } : undefined}
+                              >
+                                <Music2 size={14} />
+                              </div>
+                            </div>
+                            <div className="ai-song-info">
+                              <div className="ai-song-title" title={song.title}>{song.title}</div>
+                              <div className="ai-song-artist" title={song.artist}>{song.artist}</div>
+                            </div>
+                            <span className="ai-song-duration">{formatTime(song.duration)}</span>
+                            <button
+                              aria-label={`Add ${song.title}`}
+                              className="ai-song-add-btn"
+                              onClick={() => handleAIAddSong(song)}
+                              disabled={adding || !isVoiceConnected || aiAddingAll}
+                            >
+                              {adding ? <Sparkles size={13} className="ai-btn-thinking-sparkle" /> : <Plus size={13} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Copy to auto-fill button */}
+                    <button
+                      type="button"
+                      className="ai-use-vibe-btn"
+                      onClick={handleUseSearchVibeForAutoQueue}
+                    >
+                      <Sparkles size={13} />
+                      <span>Use this vibe for background Auto-fill</span>
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Auto-Queue Standing Vibe Banner */}
+                <div className="ai-active-vibe-banner">
+                  <div className="ai-active-vibe-header">
+                    <span className="ai-active-vibe-title">Current Auto-fill Vibe</span>
+                    <span className={`ai-outside-indicator ${aiAutoEnabled ? 'on' : 'off'}`}>
+                      {aiAutoEnabled ? 'ACTIVE' : 'PAUSED'}
+                    </span>
+                  </div>
+                  <div className="ai-active-vibe-text">
+                    {aiConfig?.prompt ? `"${aiConfig.prompt}"` : 'No vibe configured yet'}
+                  </div>
+                  <div className="ai-active-vibe-meta">
+                    {aiAutoEnabled
+                      ? `Automatically adds ${aiCount} songs whenever fewer than ${aiThreshold} songs remain in queue.`
+                      : 'Auto-fill is currently turned off for this server. Switch on below or on the header.'}
+                  </div>
                 </div>
-              </div>
+
+                {/* Auto-Queue Vibe input */}
+                <div className="ai-field">
+                  <label htmlFor="ai-auto-prompt-input" className="ai-label">Edit Auto-fill Vibe</label>
+                  <textarea
+                    id="ai-auto-prompt-input"
+                    className="ai-prompt-textarea"
+                    rows={2}
+                    placeholder="e.g. lo-fi chill buổi tối, K-pop sôi động, nhạc jazz cà phê..."
+                    value={aiAutoPrompt}
+                    onChange={e => setAiAutoPrompt(e.target.value)}
+                  />
+                </div>
+
+                {/* Config row */}
+                <div className="ai-config-row">
+                  <div className="ai-config-item">
+                    <label htmlFor="ai-auto-count-input" className="ai-label">Songs to add per top-up</label>
+                    <input
+                      id="ai-auto-count-input"
+                      type="number"
+                      className="ai-number-input"
+                      value={aiCount}
+                      min={1}
+                      max={20}
+                      onChange={e => {
+                        const parsed = Number(e.target.value);
+                        if (!Number.isFinite(parsed)) return;
+                        setAiCount(Math.max(1, Math.min(20, parsed)));
+                      }}
+                    />
+                  </div>
+                  <div className="ai-config-item">
+                    <label htmlFor="ai-threshold-input" className="ai-label">Auto-fill when &lt; songs left</label>
+                    <input
+                      id="ai-threshold-input"
+                      type="number"
+                      className="ai-number-input"
+                      value={aiThreshold}
+                      min={1}
+                      max={10}
+                      onChange={e => {
+                        const parsed = Number(e.target.value);
+                        if (!Number.isFinite(parsed)) return;
+                        setAiThreshold(Math.max(1, Math.min(10, parsed)));
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Auto-fill toggle */}
+                <div className="ai-toggle-row">
+                  <button
+                    id="ai-auto-toggle"
+                    role="switch"
+                    aria-checked={aiAutoEnabled}
+                    className={`ai-switch ${aiAutoEnabled ? 'is-on' : ''}`}
+                    onClick={() => handleAISaveConfig(!aiAutoEnabled)}
+                    disabled={!aiAutoPrompt.trim() && !aiConfig?.prompt}
+                    title={aiAutoPrompt.trim() || aiConfig?.prompt ? undefined : 'Enter a prompt first'}
+                  >
+                    <span className="ai-switch-thumb" />
+                  </button>
+                  <span className="ai-toggle-label">
+                    Enable Auto-fill when queue runs low
+                    {aiAutoEnabled && <span className="ai-on-pill">ON</span>}
+                  </span>
+                </div>
+
+                {/* Save button */}
+                <Button
+                  id="ai-save-autoqueue-btn"
+                  className="ai-suggest-btn"
+                  onClick={() => handleAISaveConfig(aiAutoEnabled)}
+                  disabled={!aiAutoPrompt.trim()}
+                >
+                  <Check size={15} /> Save Auto-fill Settings
+                </Button>
+              </>
             )}
           </DialogContent>
         </Dialog>

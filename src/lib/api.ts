@@ -51,8 +51,17 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
         throw new Error("Unauthorized");
     }
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(body || `API error: ${res.status}`);
+        let msg = `API error: ${res.status}`;
+        try {
+            const data = await res.json();
+            if (data?.detail) {
+                msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+            }
+        } catch {
+            const body = await res.text().catch(() => '');
+            if (body) msg = body;
+        }
+        throw new Error(msg);
     }
     return res.json();
 }
@@ -216,12 +225,39 @@ export async function aiSuggest(
     });
 }
 
-/** Add a single AI-suggested song URL to the queue. */
-export async function aiConfirmSong(guildId: string, url: string) {
+/** Add a single AI-suggested song to the queue. Accepts song object or url string. */
+export async function aiConfirmSong(guildId: string, songOrUrl: AISong | string) {
+    const payload = typeof songOrUrl === 'string'
+        ? { url: songOrUrl }
+        : {
+            url: songOrUrl.url,
+            title: songOrUrl.title,
+            artist: songOrUrl.artist,
+            thumbnail: songOrUrl.thumbnail,
+            duration: songOrUrl.duration,
+        };
     return await fetchApi(`/ai/${guildId}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify(payload),
+    });
+}
+
+/** Add a list of AI-suggested songs to the queue in bulk. */
+export async function aiConfirmBatch(guildId: string, songs: AISong[]) {
+    const payload = {
+        songs: songs.map(s => ({
+            url: s.url,
+            title: s.title,
+            artist: s.artist,
+            thumbnail: s.thumbnail,
+            duration: s.duration,
+        }))
+    };
+    return await fetchApi(`/ai/${guildId}/confirm_batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
     });
 }
 
