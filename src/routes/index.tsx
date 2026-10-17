@@ -168,8 +168,24 @@ function MusicRoom() {
 
   // Load AI Auto-Queue config when guild changes
   useEffect(() => {
-    if (!currentGuildId || !user) return;
+    if (!currentGuildId || !user) {
+      setAiConfig(null);
+      setAiPrompt('');
+      setAiCount(5);
+      setAiThreshold(2);
+      setAiAutoEnabled(false);
+      setAiSuggestions([]);
+      setAiError('');
+      return;
+    }
     let cancelled = false;
+    setAiConfig(null);
+    setAiPrompt('');
+    setAiCount(5);
+    setAiThreshold(2);
+    setAiAutoEnabled(false);
+    setAiSuggestions([]);
+    setAiError('');
     getAIAutoQueue(currentGuildId)
       .then(cfg => {
         if (cancelled) return;
@@ -179,7 +195,14 @@ function MusicRoom() {
         setAiThreshold(cfg.threshold ?? 2);
         setAiAutoEnabled(cfg.enabled ?? false);
       })
-      .catch(() => { /* silently ignore if AI not configured */ });
+      .catch(() => {
+        if (cancelled) return;
+        setAiConfig(null);
+        setAiPrompt('');
+        setAiCount(5);
+        setAiThreshold(2);
+        setAiAutoEnabled(false);
+      });
     return () => { cancelled = true; };
   }, [currentGuildId, user]);
 
@@ -973,7 +996,11 @@ function MusicRoom() {
                   value={aiCount}
                   min={1}
                   max={20}
-                  onChange={e => setAiCount(Math.max(1, Math.min(20, Number(e.target.value))))}
+                  onChange={e => {
+                    const parsed = Number(e.target.value);
+                    if (!Number.isFinite(parsed)) return;
+                    setAiCount(Math.max(1, Math.min(20, parsed)));
+                  }}
                 />
               </div>
               <div className="ai-config-item">
@@ -985,7 +1012,11 @@ function MusicRoom() {
                   value={aiThreshold}
                   min={1}
                   max={10}
-                  onChange={e => setAiThreshold(Math.max(1, Math.min(10, Number(e.target.value))))}
+                  onChange={e => {
+                    const parsed = Number(e.target.value);
+                    if (!Number.isFinite(parsed)) return;
+                    setAiThreshold(Math.max(1, Math.min(10, parsed)));
+                  }}
                 />
               </div>
             </div>
