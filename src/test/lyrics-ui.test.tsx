@@ -281,5 +281,67 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
       expect(screen.getByText('+0.0s')).toBeInTheDocument()
     })
   })
-})
+  it('displays net sync offset and clear intro breakdown when lyrics have intro_offset', async () => {
+    const mockLyrics = {
+      type: 'line' as const,
+      provider: 'lrclib',
+      intro_offset: 17.8,
+      lines: [
+        { begin: 0, end: 10, text: 'Line zero' },
+        { begin: 25, end: 35, text: 'Line twenty-five' },
+      ],
+    }
+    vi.mocked(api.getLyrics).mockResolvedValue({ lyrics: mockLyrics })
 
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(MockEventSource.instances.length).toBeGreaterThan(0)
+    })
+
+    act(() => {
+      MockEventSource.instances[0].emit({
+        current: { title: 'Intro Song', artist: 'Artist', duration: 200 },
+        position: 10,
+        is_paused: true,
+        stopped: false,
+        queue: [],
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Lyrics/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Line twenty-five')).toBeInTheDocument()
+    })
+
+    // Initially with userOffset = 0, net offset is -17.8s with intro label
+    expect(screen.getByText('-17.8s')).toBeInTheDocument()
+    expect(screen.getByText('(incl. 17.8s MV intro)')).toBeInTheDocument()
+
+    // Click line starting at 25s
+    const lineTwo = screen.getByRole('button', { name: /Line twenty-five/i })
+    act(() => {
+      fireEvent.click(lineTwo)
+    })
+
+    // Net offset is +15.0s (25 - 10 = 15.0s), with manual breakdown
+    await waitFor(() => {
+      expect(screen.getByText('+15.0s')).toBeInTheDocument()
+      expect(screen.getByText(/Manual: \+32\.8s, MV intro: 17\.8s/)).toBeInTheDocument()
+    })
+
+    // Reset restores to initial net intro offset
+    const resetBtn = screen.getByRole('button', { name: /Reset/i })
+    act(() => {
+      fireEvent.click(resetBtn)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('-17.8s')).toBeInTheDocument()
+      expect(screen.getByText('(incl. 17.8s MV intro)')).toBeInTheDocument()
+    })
+  })
+});

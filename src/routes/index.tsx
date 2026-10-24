@@ -1495,9 +1495,17 @@ function MusicRoom() {
                       <span>
                         Sync Offset:{' '}
                         <strong className="text-foreground font-mono">
-                          {userOffset >= 0 ? `+${userOffset.toFixed(1)}s` : `${userOffset.toFixed(1)}s`}
+                          {userOffset - (lyrics.intro_offset || 0) >= 0
+                            ? `+${(userOffset - (lyrics.intro_offset || 0)).toFixed(1)}s`
+                            : `${(userOffset - (lyrics.intro_offset || 0)).toFixed(1)}s`}
                         </strong>
-                        {lyrics.intro_offset ? ` (MV intro: -${lyrics.intro_offset.toFixed(1)}s)` : ''}
+                        {lyrics.intro_offset ? (
+                          <span className="text-[11px] text-muted-foreground/80 font-mono ml-1.5">
+                            {userOffset !== 0
+                              ? `(Manual: ${userOffset >= 0 ? `+${userOffset.toFixed(1)}s` : `${userOffset.toFixed(1)}s`}, MV intro: ${lyrics.intro_offset.toFixed(1)}s)`
+                              : `(incl. ${lyrics.intro_offset.toFixed(1)}s MV intro)`}
+                          </span>
+                        ) : null}
                       </span>
                       <span className="lyrics-sync-hint-chip">
                         <Sparkles size={10} className="text-primary shrink-0" />

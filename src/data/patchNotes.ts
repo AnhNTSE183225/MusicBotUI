@@ -22,6 +22,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'Individual "Mark as read" and "Mark as unread" buttons on every version card',
       'Header actions to "Mark all as read" and "Mark all as unread" in a single click',
       'Replaced default browser hover tooltips with modern, in-situ sync playhead badges on lyric lines',
+      'Display true net sync offset with clear manual and MV intro breakdown (e.g. -0.4s [Manual: +17.4s, MV intro: 17.8s])',
       'Refined spacing and alignment for sync offset metadata and intro delay chips',
     ],
   },
