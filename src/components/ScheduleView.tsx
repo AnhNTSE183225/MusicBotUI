@@ -951,11 +951,14 @@ function EventEditor({
       count: ends === 'count' ? Math.max(1, count) : null,
     }
 
+    const localDate = new Date(`${day}T${time}`)
+    const startIso = isNaN(localDate.getTime()) ? `${day}T${time}` : localDate.toISOString()
+
     const data: Partial<ScheduleEvent> = {
       title: title.trim(),
       description,
       category,
-      start: `${day}T${time}`,
+      start: startIso,
       durationMinutes: Math.max(15, duration),
       recurrence,
       location,
