@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, type ReactNode } from 'react'
 import {
   addDays,
   addMonths,
@@ -54,6 +54,7 @@ import {
   getResponse,
   googleMapsUrl,
   isInvited,
+  isOccurrenceOnDay,
   summarizeResponses,
   useScheduleStore,
 } from '@/lib/schedule'
@@ -125,6 +126,16 @@ export function ScheduleView({
   const [editing, setEditing] = useState<{ event?: ScheduleEvent; date?: Date } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [slideDir, setSlideDir] = useState<'right' | 'left'>('right')
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || selected) return;
+    const urlEventId = new URLSearchParams(window.location.search).get('event');
+    if (!urlEventId || events.length === 0) return;
+    const ev = events.find((e) => e.id === urlEventId);
+    if (ev && ev.start) {
+      setSelected({ id: ev.id, key: ev.start });
+    }
+  }, [events, selected]);
 
   const range = useMemo(() => {
     if (view === 'month') return { from: startOfWeek(startOfMonth(cursor)), to: addDays(endOfWeek(endOfMonth(cursor)), 1) }
@@ -411,7 +422,7 @@ function MonthGrid({
     <div className="month-grid">
       {WEEKDAY_SHORT.map((d) => <div key={d} className="month-head">{d}</div>)}
       {days.map((d) => {
-        const list = occurrences.filter((o) => isSameDay(o.start, d))
+        const list = occurrences.filter((o) => isOccurrenceOnDay(o, d))
         return (
           <div
             key={d.toISOString()}
@@ -423,19 +434,27 @@ function MonthGrid({
             <div className="flex flex-col gap-1 min-w-0">
               {list.slice(0, 3).map((o) => {
                 const CatIcon = getCategoryMeta(o.event.category, o.event.title, o.event.description).icon
+                const isStartDay = isSameDay(o.start, d)
+                const isEndDay = isSameDay(o.end, d)
+                const timeText = isStartDay
+                  ? format(o.start, 'HH:mm')
+                  : isEndDay
+                  ? `ends ${format(o.end, 'HH:mm')}`
+                  : 'all day'
+
                 return (
                   <button
-                    key={o.event.id + o.key}
-                    className="month-chip"
+                    key={o.event.id + o.key + '-' + format(d, 'yyyy-MM-dd')}
+                    className={`month-chip ${!isStartDay ? 'is-continuation opacity-90' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation()
                       onOpen(o)
                     }}
-                    title={`${o.event.title} (${format(o.start, 'HH:mm')})`}
+                    title={`${o.event.title} (${format(o.start, 'MMM d, HH:mm')} – ${format(o.end, 'MMM d, HH:mm')})`}
                   >
                     <StatusDot status={getResponse(o.event, o.key, userId)} />
                     <CatIcon size={11} className="shrink-0 text-primary/80" />
-                    <span className="shrink-0 text-muted-foreground font-mono text-[10px]">{format(o.start, 'HH:mm')}</span>
+                    <span className="shrink-0 text-muted-foreground font-mono text-[10px]">{timeText}</span>
                     <span className="truncate">{o.event.title}</span>
                   </button>
                 )
@@ -484,25 +503,54 @@ function WeekGrid({
             ))}
           </div>
           {days.map((d) => {
-            const list = occurrences.filter((o) => isSameDay(o.start, d))
-            const lanes: Occurrence[][] = []
-            for (const o of list) {
-              const lane = lanes.find((l) => l[l.length - 1].end <= o.start)
-              if (lane) lane.push(o); else lanes.push([o])
+            const list = occurrences.filter((o) => isOccurrenceOnDay(o, d))
+
+            interface DaySlice {
+              occurrence: Occurrence
+              sliceStartHour: number
+              sliceEndHour: number
             }
+
+            const slices: DaySlice[] = list.map((o) => {
+              const isStartDay = isSameDay(o.start, d)
+              const isEndDay = isSameDay(o.end, d)
+              const sliceStartHour = isStartDay ? (o.start.getHours() + o.start.getMinutes() / 60) : 0
+              const sliceEndHour = isEndDay ? (o.end.getHours() + o.end.getMinutes() / 60) : 24
+              return { occurrence: o, sliceStartHour, sliceEndHour }
+            }).sort((a, b) => a.sliceStartHour - b.sliceStartHour || (b.sliceEndHour - b.sliceStartHour) - (a.sliceEndHour - a.sliceStartHour))
+
+            const lanes: DaySlice[][] = []
+            for (const s of slices) {
+              const lane = lanes.find((l) => l[l.length - 1].sliceEndHour <= s.sliceStartHour)
+              if (lane) lane.push(s); else lanes.push([s])
+            }
+
             return (
               <div key={d.toISOString()} className="week-col">
-                {lanes.map((lane, li) => lane.map((o) => {
-                  const top = (o.start.getHours() + o.start.getMinutes() / 60) * HOUR_PX
-                  const mins = Math.min(o.event.durationMinutes, (24 - o.start.getHours()) * 60 - o.start.getMinutes())
+                {lanes.map((lane, li) => lane.map((s) => {
+                  const o = s.occurrence
+                  const top = s.sliceStartHour * HOUR_PX
+                  const durationHours = Math.max(0.35, s.sliceEndHour - s.sliceStartHour)
+                  const height = Math.max(24, durationHours * HOUR_PX - 2)
                   const CatIcon = getCategoryMeta(o.event.category, o.event.title, o.event.description).icon
                   const organizer = members.find((m) => m.id === o.event.organizerId)
+                  const isStartDay = isSameDay(o.start, d)
+                  const isEndDay = isSameDay(o.end, d)
+                  const timeDisplay = isStartDay && isEndDay
+                    ? `${format(o.start, 'HH:mm')}–${format(o.end, 'HH:mm')}`
+                    : isStartDay
+                    ? `${format(o.start, 'HH:mm')} → 24:00`
+                    : isEndDay
+                    ? `00:00–${format(o.end, 'HH:mm')}`
+                    : `All day`
+
                   return (
                     <button
-                      key={o.event.id + o.key}
-                      className="week-event"
+                      key={o.event.id + o.key + '-' + format(d, 'yyyy-MM-dd')}
+                      className={`week-event ${!isStartDay ? 'is-continuation opacity-90' : ''}`}
                       onClick={() => onOpen(o)}
-                      style={{ top, height: Math.max(24, (mins / 60) * HOUR_PX - 2), left: `${(li / lanes.length) * 100}%`, width: `${100 / lanes.length}%` }}
+                      style={{ top, height, left: `${(li / lanes.length) * 100}%`, width: `${100 / lanes.length}%` }}
+                      title={`${o.event.title} (${format(o.start, 'MMM d, HH:mm')} – ${format(o.end, 'MMM d, HH:mm')})`}
                     >
                       <span className="flex items-center gap-1 font-semibold truncate">
                         <StatusDot status={getResponse(o.event, o.key, userId)} />
@@ -510,7 +558,7 @@ function WeekGrid({
                         <span className="truncate">{o.event.title}</span>
                       </span>
                       <div className="flex items-center justify-between gap-1 text-muted-foreground text-[10px] min-w-0">
-                        <span className="font-mono shrink-0">{format(o.start, 'HH:mm')}–{format(o.end, 'HH:mm')}</span>
+                        <span className="font-mono shrink-0">{timeDisplay}</span>
                         {organizer && (
                           <span className="flex items-center gap-1 min-w-0 shrink truncate">
                             <CreatorAvatar
@@ -554,11 +602,25 @@ function Agenda({
   onOpen: (o: Occurrence) => void
 }) {
   if (!occurrences.length) return <div className="schedule-empty"><CalendarDays size={24} /><span>No events in the next 60 days.</span></div>
-  const groups: { day: Date; items: Occurrence[] }[] = []
+
+  const groupsMap = new Map<string, { day: Date; items: Occurrence[] }>()
   for (const o of occurrences) {
-    const g = groups.find((x) => isSameDay(x.day, o.start))
-    if (g) g.items.push(o); else groups.push({ day: startOfDay(o.start), items: [o] })
+    let cur = startOfDay(o.start)
+    while (cur < o.end) {
+      const dateKey = format(cur, 'yyyy-MM-dd')
+      let g = groupsMap.get(dateKey)
+      if (!g) {
+        g = { day: cur, items: [] }
+        groupsMap.set(dateKey, g)
+      }
+      g.items.push(o)
+
+      cur = addDays(cur, 1)
+      if (cur >= o.end && !isSameDay(cur, o.end)) break
+    }
   }
+
+  const groups = Array.from(groupsMap.values()).sort((a, b) => a.day.getTime() - b.day.getTime())
   return (
     <div className="agenda-list custom-schedule-scrollbar">
       {groups.map((g) => (
@@ -571,12 +633,14 @@ function Agenda({
             {g.items.map((o) => {
               const status = getResponse(o.event, o.key, userId)
               const organizer = members.find((m) => m.id === o.event.organizerId)
+              const isStartDay = isSameDay(o.start, g.day)
+              const isEndDay = isSameDay(o.end, g.day)
               return (
-                <button key={o.event.id + o.key} className="agenda-item" onClick={() => onOpen(o)}>
+                <button key={o.event.id + o.key + '-' + format(g.day, 'yyyy-MM-dd')} className="agenda-item" onClick={() => onOpen(o)}>
                   <span className="agenda-time font-mono">
-                    {format(o.start, 'HH:mm')}
+                    {isStartDay ? format(o.start, 'HH:mm') : '00:00'}
                     <br />
-                    <span className="text-muted-foreground">{format(o.end, 'HH:mm')}</span>
+                    <span className="text-muted-foreground">{isEndDay ? format(o.end, 'HH:mm') : '24:00'}</span>
                   </span>
                   <span className="flex-1 min-w-0 flex flex-col gap-1">
                     {(() => {
@@ -584,7 +648,12 @@ function Agenda({
                       return (
                         <span className="flex items-center gap-1.5 text-sm font-semibold truncate">
                           <CatIcon size={14} className="text-primary/85 shrink-0" />
-                          {o.event.title}
+                          <span className="truncate">{o.event.title}</span>
+                          {!isStartDay && (
+                            <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
+                              cont.
+                            </span>
+                          )}
                           {o.event.recurrence && <Repeat2 size={13} className="text-muted-foreground shrink-0" />}
                         </span>
                       )

@@ -62,7 +62,7 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
     })
 
     // Segmented tabs should be prominent
@@ -87,7 +87,7 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
       expect(MockEventSource.instances.length).toBeGreaterThan(0)
     })
 
@@ -140,7 +140,7 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
       expect(MockEventSource.instances.length).toBeGreaterThan(0)
     })
 
@@ -189,7 +189,7 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
       expect(MockEventSource.instances.length).toBeGreaterThan(0)
     })
 
@@ -239,7 +239,7 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
       expect(MockEventSource.instances.length).toBeGreaterThan(0)
     })
 
@@ -297,7 +297,7 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
       expect(MockEventSource.instances.length).toBeGreaterThan(0)
     })
 

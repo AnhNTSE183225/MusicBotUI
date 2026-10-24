@@ -33,11 +33,18 @@ export interface Occurrence {
 
 export const occurrenceKey = (d: Date) => format(d, 'yyyy-MM-dd')
 
+/** Whether an occurrence overlaps with a given calendar day (from 00:00:00 to 24:00:00). */
+export function isOccurrenceOnDay(o: Occurrence, d: Date): boolean {
+  const dayStart = startOfDay(d)
+  const dayEnd = addDays(dayStart, 1)
+  return o.start < dayEnd && o.end > dayStart
+}
+
 export function canManageEvent(event: ScheduleEvent, userId: string, isAdmin = false) {
   return event.organizerId === userId || isAdmin
 }
 
-/** All occurrences of an event whose start falls in [from, to). */
+/** All occurrences of an event that overlap with [from, to). */
 export function expandEvent(event: ScheduleEvent, from: Date, to: Date): Occurrence[] {
   const first = parseISO(event.start)
   const make = (start: Date): Occurrence => ({
@@ -45,8 +52,9 @@ export function expandEvent(event: ScheduleEvent, from: Date, to: Date): Occurre
   })
   const r = event.recurrence
   if (!r) {
-    return !isBefore(first, from) && isBefore(first, to) && !(event.cancelledOccurrences || []).includes(occurrenceKey(first))
-      ? [make(first)] : []
+    const occ = make(first)
+    return isBefore(first, to) && isAfter(occ.end, from) && !(event.cancelledOccurrences || []).includes(occurrenceKey(first))
+      ? [occ] : []
   }
   const interval = Math.max(1, r.interval || 1)
   const until = r.until ? addDays(startOfDay(parseISO(r.until)), 1) : null
@@ -67,7 +75,8 @@ export function expandEvent(event: ScheduleEvent, from: Date, to: Date): Occurre
     produced++
     if (r.count && produced > r.count) break
     if ((event.cancelledOccurrences || []).includes(occurrenceKey(start))) continue
-    if (!isBefore(start, from)) out.push(make(start))
+    const occ = make(start)
+    if (isAfter(occ.end, from)) out.push(occ)
   }
   return out
 }

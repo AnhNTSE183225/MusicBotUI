@@ -72,9 +72,9 @@ describe('Patch Notes & Versioning System', () => {
   })
 
   it('exposes accurate versioning metadata in patchNotes.ts', () => {
-    expect(CURRENT_VERSION).toBe('1.4.0')
-    expect(LATEST_PATCH.version).toBe('1.4.0')
-    expect(LATEST_PATCH.headline).toBe('Server Schedule & Event Calendar')
+    expect(CURRENT_VERSION).toBe('1.5.0')
+    expect(LATEST_PATCH.version).toBe('1.5.0')
+    expect(LATEST_PATCH.headline).toBe('Discord Event Invitations & Direct RSVP Links')
     expect(PATCH_NOTES.length).toBeGreaterThanOrEqual(5)
   })
 

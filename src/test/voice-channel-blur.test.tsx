@@ -83,12 +83,45 @@ describe('Voice channel gating & Contribution section', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText(/Live/)).toBeInTheDocument()
     })
 
     const main = document.querySelector('.room-main')
     expect(main).not.toHaveStyle('filter: blur(12px)')
     expect(main).not.toHaveAttribute('inert')
+  })
+
+  it('automatically selects guild where user is in voice channel instead of showing not connected overlay for another server', async () => {
+    vi.mocked(api.checkAuth).mockResolvedValue({ id: '12345', username: 'TestUser', avatar: null })
+    vi.mocked(api.getGuilds).mockResolvedValue({
+      guilds: [
+        {
+          id: 'guild1',
+          name: 'Inactive Guild',
+          channel_id: null,
+          channel_name: null,
+          bot_connected: false,
+        },
+        {
+          id: 'guild2',
+          name: 'Active Voice Guild',
+          channel_id: 'vc2',
+          channel_name: 'gaming-voice',
+          bot_connected: true,
+        },
+      ],
+    })
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Active Voice Guild')[0]).toBeInTheDocument()
+      expect(screen.getByText(/Live/)).toBeInTheDocument()
+    })
+
+    // Should NOT show the "Join a voice channel in Inactive Guild" modal
+    expect(screen.queryByText('Join a voice channel')).not.toBeInTheDocument()
   })
 
   it('opens contribution modal with UI and backend github links from footer', async () => {
@@ -109,11 +142,11 @@ describe('Voice channel gating & Contribution section', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Contribute & Bugs/i })).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Contribute or report a bug/i })).toBeInTheDocument()
     })
 
-    const contributeBtn = screen.getByRole('button', { name: /Contribute & Bugs/i })
+    const contributeBtn = screen.getByRole('button', { name: /Contribute or report a bug/i })
     contributeBtn.click()
 
     await waitFor(() => {

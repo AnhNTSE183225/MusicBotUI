@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   type ScheduleEvent, applyResponse, canManageEvent, countPendingInvites, expandEvent, getInviteeIds,
-  getResponse, summarizeResponses,
+  getResponse, isOccurrenceOnDay, summarizeResponses,
 } from '@/lib/schedule'
 
 const members = [
@@ -93,5 +93,27 @@ describe('schedule rules & calculations', () => {
     const ev: ScheduleEvent = { ...base, start }
     expect(countPendingInvites([ev], 'b', members)).toBe(1)
     expect(countPendingInvites([ev], 'c', members)).toBe(0)
+  })
+
+  it('event extending across midnight shows up on subsequent days', () => {
+    // Oct 24 23:00 to Oct 25 02:00 (180 minutes)
+    const overnightEv: ScheduleEvent = {
+      ...base,
+      start: '2026-10-24T23:00:00',
+      durationMinutes: 180,
+    }
+
+    const day24 = new Date(2026, 9, 24)
+    const day25 = new Date(2026, 9, 25)
+    const day26 = new Date(2026, 9, 26)
+
+    // Expand for range covering Oct 25
+    const occs = expandEvent(overnightEv, day25, day26)
+    expect(occs).toHaveLength(1)
+
+    const occ = occs[0]
+    expect(isOccurrenceOnDay(occ, day24)).toBe(true)
+    expect(isOccurrenceOnDay(occ, day25)).toBe(true)
+    expect(isOccurrenceOnDay(occ, day26)).toBe(false)
   })
 })

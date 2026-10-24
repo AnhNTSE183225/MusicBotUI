@@ -12,6 +12,31 @@ export const READ_PATCH_STORAGE_KEY = 'musicbot_read_patch_versions';
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '1.5.0',
+    date: '2026-10-24',
+    headline: 'Discord Event Invitations & Direct RSVP Links',
+    summary: 'Instantly notifies server members when new events are created—announcing in the dedicated #event channel or messaging invitees directly via DMs with one-click web RSVP.',
+    details: [
+      'Automatic server invitation broadcasts to the dedicated #event text channel (configurable in config.yaml) without @everyone pings',
+      'Personal direct messages (DMs) from the bot when individual members are invited to private sessions',
+      'Event invite message starts with organizer mention (<@user> invited you to an event: **Title**)',
+      'One-click RSVP web links embedded in invitation cards that take members directly to the event modal on MusicBỏtúi',
+      'Configurable event_channel setting with graceful fallback to general and system channels',
+    ],
+  },
+  {
+    version: '1.4.1',
+    date: '2026-10-24',
+    headline: 'Voice Channel Auto-Switch & Responsive Header Polish',
+    summary: 'Seamlessly auto-switches active server when joining voice channels and optimizes topbar layout for smaller screens.',
+    details: [
+      'Smart voice detection: automatically focuses the server where you joined voice chat upon opening or returning to the Listening Room, avoiding false disconnected prompts',
+      'Responsive header refinement: resolved element collisions on narrower screen widths with fluid server selector constraints and compact badge styling',
+      'Streamlined single-line "Live" session indicator to prevent badge text wrapping across multiple lines',
+      'Exact ISO 8601 UTC timestamp persistence for multi-stage event reminders (15-minute lead alert & exact start alert)',
+    ],
+  },
+  {
     version: '1.4.0',
     date: '2026-10-24',
     headline: 'Server Schedule & Event Calendar',

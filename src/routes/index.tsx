@@ -399,16 +399,29 @@ function MusicRoom() {
       const list = g.guilds || [];
       setGuilds(list);
       if (list.length > 0) {
+        const activeVoiceGuild = list.find((item) => Boolean(item.channel_id));
+        const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const urlGuildId = urlParams?.get('guild');
+        const matchedUrl = urlGuildId && list.find((item) => item.id === urlGuildId);
+
         setCurrentGuildId((prev) => {
+          if (matchedUrl) {
+            try { localStorage.setItem('selected_guild_id', matchedUrl.id); } catch {}
+            return matchedUrl.id;
+          }
+          // If the user has joined a voice channel in any server, prioritize that server!
+          if (activeVoiceGuild) {
+            try { localStorage.setItem('selected_guild_id', activeVoiceGuild.id); } catch {}
+            return activeVoiceGuild.id;
+          }
           if (prev && list.some((item) => item.id === prev)) {
             return prev;
           }
           const savedGuildId = typeof window !== 'undefined' ? localStorage.getItem('selected_guild_id') : null;
           const matchedSaved = savedGuildId && list.find((item) => item.id === savedGuildId);
-          const voiceGuild = list.find((item) => Boolean(item.channel_id));
-          return (matchedSaved || voiceGuild || list[0]).id;
+          return (matchedSaved || list[0]).id;
         });
-        const active = list.find((item) => item.id === (currentGuildId || list[0].id));
+        const active = list.find((item) => item.id === (matchedUrl ? matchedUrl.id : (activeVoiceGuild ? activeVoiceGuild.id : (currentGuildId || list[0].id))));
         if (active) {
           setSummoned(active.bot_connected);
         }
@@ -615,23 +628,54 @@ function MusicRoom() {
   const currentGuild = useMemo(() => guilds.find(g => g.id === currentGuildId) || guilds[0], [guilds, currentGuildId]);
   const currentGuildName = useMemo(() => currentGuild?.name || 'The Listening Room', [currentGuild]);
   const isGuildAdmin = Boolean(currentGuild?.is_admin);
-  const [roomView, setRoomView] = useState<'room' | 'schedule'>('room');
+  const [roomView, setRoomView] = useState<'room' | 'schedule'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const v = params.get('view') || params.get('tab');
+      if (v === 'schedule') return 'schedule';
+    }
+    return 'room';
+  });
   const { events: scheduleEvents, members: scheduleMembers } = useScheduleStore(currentGuildId);
   const pendingInvites = useMemo(() => countPendingInvites(scheduleEvents, user?.id || '', scheduleMembers), [scheduleEvents, user?.id, scheduleMembers]);
   const currentVoiceChannelName = useMemo(() => currentGuild?.channel_name || 'voice', [currentGuild]);
 
-  const isVoiceConnected = Boolean(user && currentGuild?.channel_id);
+  const userVoiceGuild = useMemo(() => guilds.find((g) => Boolean(g.channel_id)), [guilds]);
+  const isVoiceConnected = Boolean(user && (currentGuild?.channel_id || (roomView === 'room' && userVoiceGuild)));
   const isLocked = !isAuthLoaded || !user || (!isVoiceConnected && roomView === 'room');
+
+  // Auto-switch to active voice server if user is in a voice channel
+  useEffect(() => {
+    if (roomView === 'room' && userVoiceGuild && userVoiceGuild.id !== currentGuildId) {
+      setCurrentGuildId(userVoiceGuild.id);
+      setSummoned(userVoiceGuild.bot_connected);
+      try { localStorage.setItem('selected_guild_id', userVoiceGuild.id); } catch {}
+    }
+  }, [roomView, userVoiceGuild, currentGuildId]);
 
   const hasAutoRedirectedRef = useRef(false);
   useEffect(() => {
     if (isAuthLoaded && user && !hasAutoRedirectedRef.current) {
-      if (!isVoiceConnected) {
+      const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const urlView = urlParams?.get('view') || urlParams?.get('tab');
+      if (urlView === 'schedule') {
         setRoomView('schedule');
+      } else {
+        const anyVoice = guilds.some((g) => Boolean(g.channel_id));
+        if (!anyVoice) {
+          setRoomView('schedule');
+        } else {
+          const activeGuild = guilds.find((g) => Boolean(g.channel_id));
+          if (activeGuild && activeGuild.id !== currentGuildId) {
+            setCurrentGuildId(activeGuild.id);
+            setSummoned(activeGuild.bot_connected);
+            try { localStorage.setItem('selected_guild_id', activeGuild.id); } catch {}
+          }
+        }
       }
       hasAutoRedirectedRef.current = true;
     }
-  }, [isAuthLoaded, user, isVoiceConnected]);
+  }, [isAuthLoaded, user, guilds, currentGuildId]);
 
   const roomSwitchRef = useRef<HTMLDivElement>(null);
   const [roomSwitchIndicator, setRoomSwitchIndicator] = useState<{ left: number; width: number; ready: boolean }>({ left: 0, width: 0, ready: false });
@@ -991,7 +1035,7 @@ function MusicRoom() {
                  }`}
                >
                  <Sparkles size={13} className={activeKeysCount > 0 ? 'text-primary' : 'text-amber-400'} />
-                 <span>AI Pool</span>
+                 <span className="ai-pool-label">AI Pool</span>
                  <span className="font-semibold px-1 py-0.2 rounded-full text-[10px] bg-white/10">
                    {activeKeysCount}/{totalKeysCount}
                  </span>
@@ -1023,9 +1067,9 @@ function MusicRoom() {
            ) : (
              <>
                {!isVoiceConnected ? (
-                 <span className="preview-tag text-amber-400/90 border-amber-400/30">Voice channel required</span>
+                 <span className="preview-tag text-amber-400/90 border-amber-400/30">Offline</span>
                ) : (
-                 <span className="preview-tag">Live Session</span>
+                 <span className="preview-tag text-emerald-400/90 border-emerald-500/30">Live</span>
                )}
                <IconControl label="Connection settings" onClick={() => setDialog('connection')} disabled={!isVoiceConnected}><Settings2 /></IconControl>
                <DropdownMenu>
@@ -1090,7 +1134,15 @@ function MusicRoom() {
               data-view="room"
               aria-selected={roomView === 'room'}
               className={roomView === 'room' ? 'is-active' : ''}
-              onClick={() => setRoomView('room')}
+              onClick={() => {
+                const voiceGuild = guilds.find((g) => Boolean(g.channel_id));
+                if (voiceGuild && voiceGuild.id !== currentGuildId) {
+                  setCurrentGuildId(voiceGuild.id);
+                  setSummoned(voiceGuild.bot_connected);
+                  try { localStorage.setItem('selected_guild_id', voiceGuild.id); } catch {}
+                }
+                setRoomView('room');
+              }}
             >
               <Music2 size={14} />Listening room
             </button>

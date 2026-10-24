@@ -73,7 +73,7 @@ describe('AI Auto-Queue UI & Fixes', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
     })
 
     // Open AI Dialog to Search tab
@@ -149,7 +149,7 @@ describe('AI Auto-Queue UI & Fixes', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
     })
 
     // Find outside switch
@@ -213,7 +213,7 @@ describe('AI Auto-Queue UI & Fixes', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
     })
 
     // Open AI Dialog to Search tab
@@ -252,7 +252,7 @@ describe('AI Auto-Queue UI & Fixes', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
     })
 
     // Open AI Dialog
@@ -306,7 +306,7 @@ describe('AI Auto-Queue UI & Fixes', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(screen.getByText('Live')).toBeInTheDocument()
     })
 
     const sseInstance = MockEventSource.instances[0]

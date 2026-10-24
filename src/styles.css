@@ -67,20 +67,21 @@
 .ambient-art { position: absolute; z-index: -2; inset: -200px -100px auto; height: 1000px; opacity: .27; filter: blur(115px) saturate(1.35); pointer-events: none; }
 .ambient-art img { width: 100%; height: 100%; object-fit: cover; object-position: center 25%; transition: opacity .8s; }
 .ambient-shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, color-mix(in oklch,var(--background) 20%,transparent),var(--background) 92%); pointer-events: none; }
-.app-header { height: 56px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--foreground); transition: opacity 0.2s; }
+.app-header { height: 56px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--foreground); transition: opacity 0.2s; flex-shrink: 0; }
 .brand:hover { opacity: 0.9; }
 .brand-logo-img { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 2px 8px rgba(0, 230, 118, 0.25)); }
 .logo-text { font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 800; font-size: 21px; letter-spacing: -0.02em; display: inline-flex; align-items: baseline; line-height: 1; }
 .logo-text .music { color: #FFFFFF; margin-right: 2px; }
 .logo-text .botui { color: #00E676; }
-.header-room { display: flex; align-items: center; gap: 14px; }
-.server-select { gap: 8px; font-size: 13px; font-weight: 500; height: 32px; min-width: 0; }
+.header-room { display: flex; align-items: center; gap: 12px; min-width: 0; flex-shrink: 1; }
+.server-select { gap: 8px; font-size: 13px; font-weight: 500; height: 32px; min-width: 0; max-width: 160px; }
 .server-symbol { width: 22px; height: 22px; display: grid; place-items: center; background: var(--secondary); border-radius: 5px; flex-shrink: 0; }
 .header-divider { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
-.header-channel { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); min-width: 0; flex-shrink: 0; }
-.header-actions { display: flex; align-items: center; gap: 12px; }
-.preview-tag { font-size: 11px; font-weight: 500; border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; color: var(--muted-foreground); }
+.header-channel { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); min-width: 0; flex-shrink: 1; }
+.header-channel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.preview-tag { font-size: 11px; font-weight: 600; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--muted-foreground); white-space: nowrap; flex-shrink: 0; line-height: 1.4; }
 .user-avatar { border-radius: 50%; background: var(--avatar-peach); color: var(--background); width: 28px; height: 28px; font-size: 11px; font-weight: 700; }
 .room-main { max-width: 1160px; margin: 0 auto; padding: 18px 32px 14px; width: 100%; min-width: 0; box-sizing: border-box; }
 .page-intro { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
@@ -128,7 +129,20 @@ h1 { font-family: var(--font-display); font-size: 24px; font-weight: 600; line-h
 }
 @keyframes art-in { from { opacity: .4; transform: scale(.985); } to { opacity: 1; transform: scale(1); } }
 @media (min-width: 1500px) { .room-main { padding-top: 24px; }.app-header { padding-inline: max(5%,calc((100vw - 1280px)/2)); } }
-@media (max-width: 1000px) { .room-main { padding-inline: 20px; }.player-panel { padding-inline: 18px; }.player-footer { margin-inline: -18px; }.queue-panel { padding-inline: 18px; }.header-actions { gap: 8px; }.header-room { gap: 8px; }.playback-controls { gap: 14px; }.queue-row { gap: 8px; }.queue-art { width: 38px; height: 38px; } }
+@media (max-width: 1100px) {
+  .app-header { padding-inline: 16px; gap: 8px; }
+  .patch-notes-pill { margin-left: 4px; }
+  .patch-highlight { max-width: 90px; }
+  .header-actions { gap: 6px; }
+  .header-room { gap: 8px; }
+}
+@media (max-width: 950px) {
+  .patch-highlight, .patch-sep { display: none; }
+  .ai-pool-label { display: none; }
+  .server-select { max-width: 125px; }
+  .header-channel span { max-width: 75px; }
+}
+@media (max-width: 1000px) { .room-main { padding-inline: 20px; }.player-panel { padding-inline: 18px; }.player-footer { margin-inline: -18px; }.queue-panel { padding-inline: 18px; }.header-actions { gap: 6px; }.header-room { gap: 6px; }.playback-controls { gap: 14px; }.queue-row { gap: 8px; }.queue-art { width: 38px; height: 38px; } }
 @media (max-width: 740px) { .app-header { height: auto; min-height: 56px; padding: 10px 16px 12px; flex-wrap: wrap; align-items: center; }.brand { font-size: 18px; }.brand-logo-img { width: 28px; height: 28px; }.logo-text { font-size: 19px; }.header-room { order: 3; width: 100%; justify-content: center; margin-top: 8px; gap: 8px; }.server-select { max-width: min(200px, 50vw); font-size: 12px; padding: 0 8px; }.header-channel { font-size: 11px; }.header-actions > button,.preview-tag { display: none; }.header-actions .user-avatar,.header-actions .login-btn { display: inline-flex; }.room-main { padding: 16px 14px 0; }.page-intro { margin-bottom: 16px; }h1 { font-size: 22px; }.eyebrow { font-size: 10px; }.listeners { gap: 0; }.listeners > div:last-child { display: none; }.listener-avatar { width: 24px; height: 24px; }.music-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; width: 100%; min-width: 0; }.player-panel { padding: 18px 16px 0; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; }.artwork-stage { max-width: min(280px, 75vw); width: 100%; margin: 0 auto; }.player-footer { margin-inline: -16px; }.queue-panel { padding: 18px 16px 0; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; }.track-details h2 { font-size: 20px; }.playback-controls { gap: 12px; }.queue-row { min-height: 56px; }.queue-list { min-height: 0; max-height: none; }.queue-art { width: 40px; height: 40px; }.queue-track-info h3 { font-size: 13px; }.queue-track-info p { font-size: 11px; }.queue-play { opacity: 1; inset: auto 0 0 auto; width: 20px; height: 20px; border-radius: 3px; }.queue-play svg { width: 11px; height: 11px; }.session-band { padding: 12px; flex-wrap: wrap; }.session-status { font-size: 11px; }.session-divider { display: none; }.session-menu { margin-left: auto; }.app-footer { margin-top: 12px; }.progress-area { margin-top: 16px; } }
 
 
