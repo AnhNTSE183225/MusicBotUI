@@ -320,3 +320,61 @@ export async function deleteGeminiKey(keyId: number): Promise<{ status: string }
     });
 }
 
+
+
+// ---------------------------------------------------------------------------
+// Playlist Preview & Batch Addition API
+// ---------------------------------------------------------------------------
+
+export interface PlaylistTrack {
+    index: number;
+    id: string;
+    title: string;
+    artist: string;
+    duration: number;
+    url: string;
+    thumbnail: string;
+}
+
+export interface PlaylistPreviewResponse {
+    title: string;
+    uploader: string;
+    thumbnail: string;
+    total_tracks: number;
+    tracks: PlaylistTrack[];
+}
+
+export interface AddPlaylistPayload {
+    url?: string;
+    title?: string;
+    start_index?: number;
+    end_index?: number;
+    tracks?: Array<{
+        url: string;
+        title?: string;
+        artist?: string;
+        thumbnail?: string;
+        duration?: number;
+    }>;
+}
+
+/** Fetch preview metadata and track list for a playlist. */
+export async function previewPlaylist(guildId: string, url: string): Promise<PlaylistPreviewResponse> {
+    return await fetchApi(`/playlist/${guildId}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+    });
+}
+
+/** Add a range of songs from a playlist to the queue. */
+export async function addPlaylist(
+    guildId: string,
+    payload: AddPlaylistPayload,
+): Promise<{ status: string; added_count: number; playlist_title: string }> {
+    return await fetchApi(`/playlist/${guildId}/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}

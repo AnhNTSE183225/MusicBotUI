@@ -14,3 +14,9 @@
 - Treat the supplied session as an explicitly labeled visual preview until an existing bot API is provided; never imply sample data is synced to Discord or implement independent audio playback.
 - Keep album artwork bundled and derive ambience from the currently displayed artwork; visual lighting must follow the music rather than unrelated decoration.
 - Follow the design system guidelines in `DESIGN.md`: maintain the normalized 4-tier typography scale (minimum 11px font size) and keep the desktop layout within a no-scroll single-page viewport (compact 56px header, internal queue scrolling).
+
+
+## Release Notes & Versioning Rule
+- **Every time a new feature is added**: You MUST update the release notes in `src/data/patchNotes.ts`.
+- **Default behavior**: Bump the version (e.g. `1.1.0` -> `1.2.0` or `1.1.1` depending on change magnitude) and create a brand new version entry at the top of `PATCH_NOTES` with `version`, `date`, `headline`, `summary` (1-2 lines), and bulleted `details`.
+- **User override**: If the user explicitly asks to update existing release/patch notes instead of creating a new version, update the current version entry in-place rather than creating a new version entry.

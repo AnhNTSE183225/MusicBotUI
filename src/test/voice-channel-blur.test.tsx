@@ -100,6 +100,7 @@ describe('Voice channel gating & Contribution section', () => {
     render(<Component />)
 
     await waitFor(() => {
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
       expect(screen.getByText('Want to contribute or report a bug?')).toBeInTheDocument()
     })
 

@@ -10,6 +10,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, aiConfirmBatch, getAIAutoQueue, setAIAutoQueue, getGeminiKeys, contributeGeminiKey, deleteGeminiKey, type GuildSession, type AISong, type AIAutoQueueConfig, type GeminiKeyInfo, type GeminiKeysResponse } from '@/lib/api'
 
 import { MarqueeText } from '@/components/MarqueeText'
+import { PlaylistModal } from '@/components/PlaylistModal'
+import { isYouTubePlaylistUrl } from '@/lib/youtube'
+import { PatchNotesModal } from '@/components/PatchNotesModal'
+import { CURRENT_VERSION, LATEST_PATCH, usePatchNotesReadState } from '@/data/patchNotes'
 
 import ocean from '@/assets/ocean-drive.jpg'
 import dunes from '@/assets/sundown.jpg'
@@ -109,10 +113,16 @@ function MusicRoom() {
   const queuePanelRef = useRef<HTMLDivElement | null>(null)
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const syncRef = useRef<{ basePos: number; syncTime: number }>({ basePos: 0, syncTime: performance.now() })
+  const userScrollingRef = useRef(false)
+  const userScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ---------------------------------------------------------------------------
   // AI Auto-Queue & Community Key state
   // ---------------------------------------------------------------------------
+  const { unreadCount } = usePatchNotesReadState()
+  const [patchNotesOpen, setPatchNotesOpen] = useState(false)
+  const [playlistModalOpen, setPlaylistModalOpen] = useState(false)
+  const [playlistModalInitialUrl, setPlaylistModalInitialUrl] = useState('')
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [aiPanelTab, setAiPanelTab] = useState<'search' | 'autoqueue' | 'keys'>('search')
   const [aiSearchPrompt, setAiSearchPrompt] = useState('')
@@ -299,6 +309,7 @@ function MusicRoom() {
 
   useEffect(() => {
     if (activeTab === 'lyrics' && activeLineRef.current && lyricsContainerRef.current) {
+      if (userScrollingRef.current) return;
       const container = lyricsContainerRef.current;
       const line = activeLineRef.current;
       const containerHeight = container.clientHeight;
@@ -344,6 +355,32 @@ function MusicRoom() {
       return next;
     });
   };
+
+  const handleLyricsScroll = useCallback(() => {
+    userScrollingRef.current = true;
+    if (userScrollTimeoutRef.current) {
+      clearTimeout(userScrollTimeoutRef.current);
+    }
+    userScrollTimeoutRef.current = setTimeout(() => {
+      userScrollingRef.current = false;
+    }, 4000);
+  }, []);
+
+  const handleSyncToLine = useCallback((line: LyricLine) => {
+    userScrollingRef.current = false;
+    if (userScrollTimeoutRef.current) {
+      clearTimeout(userScrollTimeoutRef.current);
+    }
+
+    const introOffset = lyrics?.intro_offset || 0;
+    const rawOffset = line.begin - position + introOffset;
+    const roundedOffset = Math.round(rawOffset * 10) / 10;
+
+    setUserOffset(roundedOffset);
+    if (current?.title) {
+      localStorage.setItem(`offset_${current.title}`, roundedOffset.toString());
+    }
+  }, [lyrics?.intro_offset, position, current?.title]);
 
   const resetOffset = () => {
     setUserOffset(0);
@@ -626,6 +663,12 @@ function MusicRoom() {
       e.preventDefault();
       if (!query.trim() || !currentGuildId || !isVoiceConnected) return;
       const url = query.trim();
+      if (isYouTubePlaylistUrl(url)) {
+          setPlaylistModalInitialUrl(url);
+          setPlaylistModalOpen(true);
+          setQuery('');
+          return;
+      }
       setQuery('');
       try {
           await addSong(currentGuildId, url);
@@ -811,13 +854,32 @@ function MusicRoom() {
       <div className="ambient-art" aria-hidden="true"><img src={displayCurrent.image} alt="" /></div>
       <div className="ambient-shade" aria-hidden="true" />
       <header className="app-header">
-        <a href="/" className="brand" aria-label="MusicBỏTúi Home">
+        <div className="flex items-center gap-2">
+          <a href="/" className="brand" aria-label="MusicBỏTúi Home">
           <img src={logoIcon} alt="MusicBỏTúi Logo" className="brand-logo-img" />
           <span className="logo-text">
             <span className="music">Music</span>
             <span className="botui">BỏTúi</span>
           </span>
         </a>
+          <button
+            type="button"
+            onClick={() => setPatchNotesOpen(true)}
+            className="patch-notes-pill"
+            aria-label={`View release notes${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+          >
+            <span className="patch-version">v{CURRENT_VERSION}</span>
+            <span className="patch-sep">•</span>
+            <span className="patch-highlight">{LATEST_PATCH.headline}</span>
+            {unreadCount > 0 ? (
+              <span className="patch-unread-badge" aria-label={`${unreadCount} unread updates`}>
+                {unreadCount}
+              </span>
+            ) : (
+              <Sparkles size={11} className="patch-sparkle text-primary" />
+            )}
+          </button>
+        </div>
         <div className="header-room">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -916,7 +978,10 @@ function MusicRoom() {
                      <Sparkles size={14} className="mr-1.5" /> Community AI Pool ({activeKeysCount}/{totalKeysCount})
                    </DropdownMenuItem>
                    <DropdownMenuItem onClick={() => setDialog('contribution')}>
-                     <Github size={14} className="mr-1.5" /> Contribute / Report Bug
+                     <Sparkles size={14} className="mr-1.5" /> Release Notes (v{CURRENT_VERSION})
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDialog('contribution')}>
+                      <Github size={14} className="mr-1.5" /> Contribute / Report Bug
                    </DropdownMenuItem>
                    <DropdownMenuSeparator />
                    <DropdownMenuItem onClick={() => { localStorage.removeItem('auth_token'); window.location.reload(); }}>
@@ -1207,6 +1272,25 @@ function MusicRoom() {
               <form className="add-track" onSubmit={handleAddSong}>
                 <Music2 size={18} />
                 <Input aria-label="Song search or URL" placeholder="Paste a link or search for a song" value={query} onChange={event => setQuery(event.target.value)} />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Add playlist"
+                      className="h-[27px] w-[27px] text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={() => {
+                        const trimmed = query.trim();
+                        setPlaylistModalInitialUrl(isYouTubePlaylistUrl(trimmed) ? trimmed : '');
+                        setPlaylistModalOpen(true);
+                      }}
+                    >
+                      <ListMusic size={16} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Add playlist</TooltipContent>
+                </Tooltip>
                 <Button size="icon" aria-label="Add to queue" disabled={!query.trim()} type="submit"><Plus /></Button>
               </form>
             )}
@@ -1310,7 +1394,7 @@ function MusicRoom() {
               </div>
             ) : (
               <div className="flex-1 flex flex-col min-h-0">
-                <div className="lyrics-view" ref={lyricsContainerRef}>
+                <div className="lyrics-view" ref={lyricsContainerRef} onScroll={handleLyricsScroll}>
                   {lyricsLoading ? (
                     <div className="empty-queue">
                       <Music2 size={26} className="animate-spin text-primary" />
@@ -1347,7 +1431,18 @@ function MusicRoom() {
                           key={idx}
                           ref={isActive ? activeLineRef : null}
                           className={`lyrics-line ${isActive ? 'is-active' : ''}`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => handleSyncToLine(line)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleSyncToLine(line);
+                            }
+                          }}
+                          aria-label={`Lyric line: ${line.text}. Click to sync playback.`}
                         >
+                          <span className="lyrics-line-text">
                           {line.words && line.words.length > 0 ? (
                             line.words.map((w, wIdx) => {
                               const isSung = effectiveTime >= w.begin;
@@ -1383,6 +1478,11 @@ function MusicRoom() {
                           ) : (
                             line.text
                           )}
+                          </span>
+                          <span className="lyrics-line-sync-badge" aria-hidden="true">
+                            <Play size={9} className="fill-current" />
+                            <span>{formatTime(line.begin)}</span>
+                          </span>
                         </div>
                       );
                     })
@@ -1391,13 +1491,19 @@ function MusicRoom() {
 
                 {lyrics && (
                   <div className="lyrics-sync-bar">
-                    <span>
-                      Sync Offset:{' '}
-                      <strong className="text-foreground">
-                        {userOffset >= 0 ? `+${userOffset.toFixed(1)}s` : `${userOffset.toFixed(1)}s`}
-                      </strong>
-                      {lyrics.intro_offset ? ` (MV intro: -${lyrics.intro_offset.toFixed(1)}s)` : ''}
-                    </span>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span>
+                        Sync Offset:{' '}
+                        <strong className="text-foreground font-mono">
+                          {userOffset >= 0 ? `+${userOffset.toFixed(1)}s` : `${userOffset.toFixed(1)}s`}
+                        </strong>
+                        {lyrics.intro_offset ? ` (MV intro: -${lyrics.intro_offset.toFixed(1)}s)` : ''}
+                      </span>
+                      <span className="lyrics-sync-hint-chip">
+                        <Sparkles size={10} className="text-primary shrink-0" />
+                        <span>Click any line to sync</span>
+                      </span>
+                    </div>
                     <div className="lyrics-sync-controls">
                       <Button
                         variant="ghost"
@@ -2248,5 +2354,23 @@ function MusicRoom() {
         )}
       </Dialog>
     </div>
+      <PlaylistModal
+        open={playlistModalOpen}
+        onOpenChange={setPlaylistModalOpen}
+        currentGuildId={currentGuildId}
+        isVoiceConnected={isVoiceConnected}
+        initialUrl={playlistModalInitialUrl}
+        onSuccess={(count, title) => {
+          setNotice(`Added ${count} song(s) from "${title}" to queue`);
+          setPlaylistModalInitialUrl('');
+        }}
+        onError={(msg) => {
+          setNotice(msg);
+        }}
+      />
+      <PatchNotesModal
+        open={patchNotesOpen}
+        onOpenChange={setPatchNotesOpen}
+      />
   </TooltipProvider>
 }

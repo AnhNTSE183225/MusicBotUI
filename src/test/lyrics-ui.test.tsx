@@ -222,5 +222,64 @@ describe('Lyrics UI & Issue Fixes (Tickets #2, #3, #4)', () => {
     // "ble" is at the end of the line/word, so it does not have has-space
     expect(screen.getByText('ble')).not.toHaveClass('has-space')
   })
+
+  it('allows user to click on a lyric line to set the sync timing to that line with delay offset and reset', async () => {
+    const mockLyrics = {
+      type: 'line' as const,
+      provider: 'lrclib',
+      lines: [
+        { begin: 0, end: 10, text: 'Line one starting at zero' },
+        { begin: 25, end: 35, text: 'Line two starting at 25s' },
+        { begin: 60, end: 75, text: 'Line three starting at 60s' },
+      ],
+    }
+    vi.mocked(api.getLyrics).mockResolvedValue({ lyrics: mockLyrics })
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Session')).toBeInTheDocument()
+      expect(MockEventSource.instances.length).toBeGreaterThan(0)
+    })
+
+    act(() => {
+      MockEventSource.instances[0].emit({
+        current: { title: 'Sync Test Song', artist: 'Artist', duration: 180 },
+        position: 10,
+        is_paused: true,
+        stopped: false,
+        queue: [],
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Lyrics/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Line two starting at 25s')).toBeInTheDocument()
+    })
+
+    const lineTwo = screen.getByRole('button', { name: /Line two starting at 25s/i })
+    expect(lineTwo).toBeInTheDocument()
+
+    act(() => {
+      fireEvent.click(lineTwo)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('+15.0s')).toBeInTheDocument()
+    })
+
+    const resetBtn = screen.getByRole('button', { name: /Reset/i })
+    expect(resetBtn).toBeInTheDocument()
+
+    act(() => {
+      fireEvent.click(resetBtn)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('+0.0s')).toBeInTheDocument()
+    })
+  })
 })
 
