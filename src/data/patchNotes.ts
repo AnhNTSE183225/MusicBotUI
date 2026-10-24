@@ -12,6 +12,17 @@ export const READ_PATCH_STORAGE_KEY = 'musicbot_read_patch_versions';
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '1.5.1',
+    date: '2026-10-24',
+    headline: 'Event Deep-Link Polish & Dismissal Fix',
+    summary: 'Fixes an issue where landing on the web schedule via Discord invitation links trapped users in an unbreakable modal loop.',
+    details: [
+      'Fixed an auto-open loop that prevented dismissing or closing the event details dialog when arriving from Discord invite links',
+      'Seamlessly removes the ?event parameter from the URL upon closing without full page reload',
+      'Automatically positions the calendar cursor on the scheduled event date when opening deep links',
+    ],
+  },
+  {
     version: '1.5.0',
     date: '2026-10-24',
     headline: 'Discord Event Invitations & Direct RSVP Links',

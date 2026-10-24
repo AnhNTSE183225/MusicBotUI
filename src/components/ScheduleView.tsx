@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, useRef, type ReactNode } from 'react'
 import {
   addDays,
   addMonths,
@@ -126,16 +126,42 @@ export function ScheduleView({
   const [editing, setEditing] = useState<{ event?: ScheduleEvent; date?: Date } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [slideDir, setSlideDir] = useState<'right' | 'left'>('right')
+  const handledEventUrlRef = useRef(false)
+
+  const clearEventUrl = () => {
+    if (typeof window === 'undefined') return
+    try {
+      const url = new URL(window.location.href)
+      if (url.searchParams.has('event')) {
+        url.searchParams.delete('event')
+        const newSearch = url.searchParams.toString()
+        const newUrl = url.pathname + (newSearch ? `?${newSearch}` : '') + url.hash
+        window.history.replaceState(null, '', newUrl)
+      }
+    } catch {}
+  }
+
+  const closeDetails = () => {
+    setSelected(null)
+    clearEventUrl()
+  }
 
   useEffect(() => {
-    if (typeof window === 'undefined' || selected) return;
-    const urlEventId = new URLSearchParams(window.location.search).get('event');
-    if (!urlEventId || events.length === 0) return;
-    const ev = events.find((e) => e.id === urlEventId);
-    if (ev && ev.start) {
-      setSelected({ id: ev.id, key: ev.start });
+    if (typeof window === 'undefined' || handledEventUrlRef.current || loading) return
+    const urlEventId = new URLSearchParams(window.location.search).get('event')
+    if (!urlEventId || events.length === 0) return
+
+    const ev = events.find((e) => e.id === urlEventId)
+    if (ev) {
+      handledEventUrlRef.current = true
+      if (ev.start) {
+        setSelected({ id: ev.id, key: ev.start })
+        try {
+          setCursor(startOfDay(parseISO(ev.start)))
+        } catch {}
+      }
     }
-  }, [events, selected]);
+  }, [events, loading])
 
   const range = useMemo(() => {
     if (view === 'month') return { from: startOfWeek(startOfMonth(cursor)), to: addDays(endOfWeek(endOfMonth(cursor)), 1) }
@@ -318,11 +344,11 @@ export function ScheduleView({
           members={members}
           guildName={guildName}
           guildId={guildId}
-          onClose={() => setSelected(null)}
-          onEdit={() => { setEditing({ event: selectedOcc.event }); setSelected(null) }}
+          onClose={closeDetails}
+          onEdit={() => { setEditing({ event: selectedOcc.event }); closeDetails() }}
           onDelete={async (whole: boolean) => {
             await deleteEvent(selectedOcc.event.id, whole ? undefined : selectedOcc.key)
-            setSelected(null)
+            closeDetails()
           }}
           onRespond={async (status: RsvpStatus, scope: RsvpScope) => {
             await respondToEvent(selectedOcc.event.id, selectedOcc.key, status, scope)
