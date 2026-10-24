@@ -12,6 +12,20 @@ export const READ_PATCH_STORAGE_KEY = 'musicbot_read_patch_versions';
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '1.4.0',
+    date: '2026-10-24',
+    headline: 'Server Schedule & Event Calendar',
+    summary: 'Plan listening parties, study sessions, and server events directly in your Discord community with Month, Week, and Agenda views.',
+    details: [
+      'Dedicated Server Calendar tab with Month, Week, and Agenda views',
+      'One-off and recurring event scheduling (daily, weekly with weekday selection, monthly)',
+      'Multiple location types: Discord voice channels, Google Maps locations/links, and online event links',
+      'Server-wide or individual member invitations with real-time RSVP responses (Accept, Maybe, Decline)',
+      'Event management and editing permissions for event organizers and server administrators',
+      'Multi-server selector to schedule and view events across all your shared Discord servers without requiring an active voice session',
+    ],
+  },
+  {
     version: '1.3.0',
     date: '2026-10-24',
     headline: 'Release Notifications & Sleek Sync Badges',

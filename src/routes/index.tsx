@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { AudioLines, ArrowUpRight, Bug, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
+import { useEffect, useState, useCallback, useMemo, useRef, useLayoutEffect, type ReactNode } from 'react'
+import { AudioLines, ArrowUpRight, Bug, CalendarDays, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -14,6 +14,8 @@ import { PlaylistModal } from '@/components/PlaylistModal'
 import { isYouTubePlaylistUrl } from '@/lib/youtube'
 import { PatchNotesModal } from '@/components/PatchNotesModal'
 import { CURRENT_VERSION, LATEST_PATCH, usePatchNotesReadState } from '@/data/patchNotes'
+import { ScheduleView } from '@/components/ScheduleView'
+import { useScheduleStore, countPendingInvites } from '@/lib/schedule'
 
 import ocean from '@/assets/ocean-drive.jpg'
 import dunes from '@/assets/sundown.jpg'
@@ -391,6 +393,7 @@ function MusicRoom() {
 
   const refreshVoiceStatus = useCallback(async (manual = false) => {
     if (manual) setIsCheckingVoice(true);
+    const startTs = Date.now();
     try {
       const g = await getGuilds();
       const list = g.guilds || [];
@@ -400,7 +403,10 @@ function MusicRoom() {
           if (prev && list.some((item) => item.id === prev)) {
             return prev;
           }
-          return list[0].id;
+          const savedGuildId = typeof window !== 'undefined' ? localStorage.getItem('selected_guild_id') : null;
+          const matchedSaved = savedGuildId && list.find((item) => item.id === savedGuildId);
+          const voiceGuild = list.find((item) => Boolean(item.channel_id));
+          return (matchedSaved || voiceGuild || list[0]).id;
         });
         const active = list.find((item) => item.id === (currentGuildId || list[0].id));
         if (active) {
@@ -414,7 +420,11 @@ function MusicRoom() {
       console.error('Failed to check voice status:', e);
     } finally {
       if (manual) {
-        setTimeout(() => setIsCheckingVoice(false), 350);
+        const elapsed = Date.now() - startTs;
+        if (elapsed < 600) {
+          await new Promise((r) => setTimeout(r, 600 - elapsed));
+        }
+        setIsCheckingVoice(false);
       }
     }
   }, [currentGuildId]);
@@ -431,8 +441,13 @@ function MusicRoom() {
         const list = g.guilds || [];
         setGuilds(list);
         if (list.length > 0) {
-          setCurrentGuildId(list[0].id);
-          setSummoned(list[0].bot_connected);
+          const savedGuildId = typeof window !== 'undefined' ? localStorage.getItem('selected_guild_id') : null;
+          const matchedSaved = savedGuildId && list.find((item) => item.id === savedGuildId);
+          const voiceGuild = list.find((item) => Boolean(item.channel_id));
+          const initialGuild = matchedSaved || voiceGuild || list[0];
+
+          setCurrentGuildId(initialGuild.id);
+          setSummoned(initialGuild.bot_connected);
         } else {
           setCurrentGuildId(null);
           setSummoned(false);
@@ -597,12 +612,50 @@ function MusicRoom() {
   const validCurrentPage = useMemo(() => Math.min(Math.max(1, currentPage), totalPages), [currentPage, totalPages]);
   const paginatedQueue = useMemo(() => queue.slice((validCurrentPage - 1) * ITEMS_PER_PAGE, validCurrentPage * ITEMS_PER_PAGE), [queue, validCurrentPage]);
   
-  const isVoiceConnected = Boolean(user && guilds.length > 0 && currentGuildId);
-  const isLocked = !isAuthLoaded || !user || !isVoiceConnected;
-
-  const currentGuild = useMemo(() => guilds.find(g => g.id === currentGuildId), [guilds, currentGuildId]);
+  const currentGuild = useMemo(() => guilds.find(g => g.id === currentGuildId) || guilds[0], [guilds, currentGuildId]);
   const currentGuildName = useMemo(() => currentGuild?.name || 'The Listening Room', [currentGuild]);
+  const isGuildAdmin = Boolean(currentGuild?.is_admin);
+  const [roomView, setRoomView] = useState<'room' | 'schedule'>('room');
+  const { events: scheduleEvents, members: scheduleMembers } = useScheduleStore(currentGuildId);
+  const pendingInvites = useMemo(() => countPendingInvites(scheduleEvents, user?.id || '', scheduleMembers), [scheduleEvents, user?.id, scheduleMembers]);
   const currentVoiceChannelName = useMemo(() => currentGuild?.channel_name || 'voice', [currentGuild]);
+
+  const isVoiceConnected = Boolean(user && currentGuild?.channel_id);
+  const isLocked = !isAuthLoaded || !user || (!isVoiceConnected && roomView === 'room');
+
+  const hasAutoRedirectedRef = useRef(false);
+  useEffect(() => {
+    if (isAuthLoaded && user && !hasAutoRedirectedRef.current) {
+      if (!isVoiceConnected) {
+        setRoomView('schedule');
+      }
+      hasAutoRedirectedRef.current = true;
+    }
+  }, [isAuthLoaded, user, isVoiceConnected]);
+
+  const roomSwitchRef = useRef<HTMLDivElement>(null);
+  const [roomSwitchIndicator, setRoomSwitchIndicator] = useState<{ left: number; width: number; ready: boolean }>({ left: 0, width: 0, ready: false });
+
+  const updateRoomSwitchIndicator = useCallback(() => {
+    if (!roomSwitchRef.current) return;
+    const active = roomSwitchRef.current.querySelector<HTMLButtonElement>(`button[data-view="${roomView}"]`);
+    if (active) {
+      setRoomSwitchIndicator({
+        left: active.offsetLeft,
+        width: active.offsetWidth,
+        ready: true,
+      });
+    }
+  }, [roomView]);
+
+  useLayoutEffect(() => {
+    updateRoomSwitchIndicator();
+  }, [updateRoomSwitchIndicator, pendingInvites]);
+
+  useEffect(() => {
+    window.addEventListener('resize', updateRoomSwitchIndicator);
+    return () => window.removeEventListener('resize', updateRoomSwitchIndicator);
+  }, [updateRoomSwitchIndicator]);
 
   const autoQueueDisplayPrompt = (aiConfig?.prompt || aiAutoPrompt || '').trim();
   const autoQueueAuthorName = (aiConfig?.set_by_name && aiConfig.set_by_name !== 'User')
@@ -876,26 +929,43 @@ function MusicRoom() {
                 {unreadCount}
               </span>
             ) : (
-              <Sparkles size={11} className="patch-sparkle text-primary" />
+              <span className="w-1.5 h-1.5 rounded-full bg-primary/80 shrink-0" />
             )}
           </button>
         </div>
         <div className="header-room">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="server-select" disabled={!isVoiceConnected}>
+              <Button variant="ghost" className="server-select" disabled={guilds.length === 0}>
                 <span className="server-symbol"><Headphones size={15} /></span>
-                <span className="truncate">{isVoiceConnected ? currentGuildName : 'No voice channel'}</span>
+                <span className="truncate">{currentGuildName}</span>
                 <ChevronDown size={14} className="shrink-0" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="center">
+            <DropdownMenuContent align="center" className="min-w-[200px]">
               <DropdownMenuLabel>Your servers</DropdownMenuLabel>
               {guilds.map(g => (
-                <DropdownMenuItem key={g.id} onClick={() => { setCurrentGuildId(g.id); setSummoned(g.bot_connected); }}>
-                  <Headphones />
-                  {g.name}
-                  {g.id === currentGuildId && <Check className="ml-auto" />}
+                <DropdownMenuItem
+                  key={g.id}
+                  onClick={() => {
+                    setCurrentGuildId(g.id);
+                    setSummoned(g.bot_connected);
+                    try { localStorage.setItem('selected_guild_id', g.id); } catch {}
+                  }}
+                  className="flex items-center justify-between gap-2 cursor-pointer"
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <Headphones size={14} className="shrink-0 text-muted-foreground" />
+                    <span className="truncate">{g.name}</span>
+                  </span>
+                  <span className="flex items-center gap-1 shrink-0">
+                    {g.channel_name && (
+                      <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-full font-medium">
+                        🔊 {g.channel_name}
+                      </span>
+                    )}
+                    {g.id === currentGuildId && <Check className="ml-1 text-primary shrink-0" size={13} />}
+                  </span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -978,7 +1048,7 @@ function MusicRoom() {
                      <Sparkles size={14} className="mr-1.5" /> Community AI Pool ({activeKeysCount}/{totalKeysCount})
                    </DropdownMenuItem>
                    <DropdownMenuItem onClick={() => setDialog('contribution')}>
-                     <Sparkles size={14} className="mr-1.5" /> Release Notes (v{CURRENT_VERSION})
+                     <FileText size={14} className="mr-1.5" /> Release Notes (v{CURRENT_VERSION})
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setDialog('contribution')}>
                       <Github size={14} className="mr-1.5" /> Contribute / Report Bug
@@ -996,11 +1066,62 @@ function MusicRoom() {
 
       <main
         className="room-main"
+        data-view={roomView}
         style={isLocked ? { filter: 'blur(12px)', pointerEvents: 'none', userSelect: 'none' } : undefined}
         inert={isLocked ? true : undefined}
         aria-hidden={isLocked}
       >
-        <div className="page-intro"><div><div className="eyebrow">GOOD MUSIC. BETTER COMPANY.</div><h1>Your listening room<span className="heading-dot">.</span></h1></div></div>
+        <div className="page-intro">
+          <div>
+            <div className="eyebrow">{roomView === 'schedule' ? `${currentGuildName.toUpperCase()} · SERVER CALENDAR` : 'GOOD MUSIC. BETTER COMPANY.'}</div>
+            <h1>{roomView === 'schedule' ? 'Schedule' : 'Your listening room'}<span className="heading-dot">.</span></h1>
+          </div>
+          <div ref={roomSwitchRef} className="room-view-switch" role="tablist" aria-label="Section">
+            <div
+              className="room-view-switch-indicator"
+              style={{
+                transform: `translateX(${roomSwitchIndicator.left}px)`,
+                width: `${roomSwitchIndicator.width}px`,
+                opacity: roomSwitchIndicator.ready ? 1 : 0,
+              }}
+            />
+            <button
+              role="tab"
+              data-view="room"
+              aria-selected={roomView === 'room'}
+              className={roomView === 'room' ? 'is-active' : ''}
+              onClick={() => setRoomView('room')}
+            >
+              <Music2 size={14} />Listening room
+            </button>
+            <button
+              role="tab"
+              data-view="schedule"
+              aria-selected={roomView === 'schedule'}
+              className={roomView === 'schedule' ? 'is-active' : ''}
+              onClick={() => setRoomView('schedule')}
+            >
+              <CalendarDays size={14} />Schedule
+              {pendingInvites > 0 && <span className="tab-badge" aria-label={`${pendingInvites} invites need a response`}>{pendingInvites}</span>}
+            </button>
+          </div>
+        </div>
+
+        {roomView === 'schedule' && (
+          <ScheduleView
+            guildId={currentGuildId}
+            guildName={currentGuildName}
+            userId={user?.id || ''}
+            isAdmin={isGuildAdmin}
+            guilds={guilds}
+            onSelectGuild={(id) => {
+              setCurrentGuildId(id);
+              try { localStorage.setItem('selected_guild_id', id); } catch {}
+              const g = guilds.find((item) => item.id === id);
+              if (g) setSummoned(g.bot_connected);
+            }}
+          />
+        )}
 
         <div className="music-layout">
           <section className="player-panel glass-surface" aria-label="Music player">
@@ -2064,92 +2185,6 @@ function MusicRoom() {
           )}
         </div>
 
-        <section className="contribution-section glass-surface" aria-label="Open source contributions and bug reporting">
-          <div className="contribution-header">
-            <div className="flex items-center gap-3">
-              <div className="contribution-icon-badge">
-                <Github size={18} />
-              </div>
-              <div>
-                <h2 className="contribution-title">Want to contribute or report a bug?</h2>
-                <p className="contribution-subtitle">
-                  MusicBỏTúi is open source! Have ideas, found an issue, or want to contribute code? We welcome all feedback and pull requests.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="contribution-grid">
-            <div className="contribution-card">
-              <div className="contribution-card-header">
-                <div className="flex items-center justify-between">
-                  <span className="contribution-badge">Frontend UI</span>
-                  <a
-                    href="https://github.com/AnhNTSE183225/MusicBotUI"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="contribution-repo-link"
-                  >
-                    AnhNTSE183225/MusicBotUI <ArrowUpRight size={13} />
-                  </a>
-                </div>
-                <h3>Web Interface (MusicBỏTúi)</h3>
-                <p>
-                  React 19 web app with real-time synchronized lyrics, player controls, and queue management.
-                </p>
-              </div>
-              <div className="contribution-card-actions">
-                <Button variant="outline" size="sm" asChild className="contribution-btn">
-                  <a href="https://github.com/AnhNTSE183225/MusicBotUI" target="_blank" rel="noopener noreferrer">
-                    <Github size={14} className="mr-1.5" />
-                    Contribute on UI
-                  </a>
-                </Button>
-                <Button variant="ghost" size="sm" asChild className="contribution-btn text-muted-foreground hover:text-foreground">
-                  <a href="https://github.com/AnhNTSE183225/MusicBotUI/issues" target="_blank" rel="noopener noreferrer">
-                    <Bug size={14} className="mr-1.5 text-amber-400" />
-                    Report UI Bug
-                  </a>
-                </Button>
-              </div>
-            </div>
-
-            <div className="contribution-card">
-              <div className="contribution-card-header">
-                <div className="flex items-center justify-between">
-                  <span className="contribution-badge">Backend Bot</span>
-                  <a
-                    href="https://github.com/AnhNTSE183225/music-bot"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="contribution-repo-link"
-                  >
-                    AnhNTSE183225/music-bot <ArrowUpRight size={13} />
-                  </a>
-                </div>
-                <h3>Discord Bot & API (MusicBỏTúi)</h3>
-                <p>
-                  Python bot with discord.py, FastAPI endpoints, voice streaming, queue orchestrations, and skip voting.
-                </p>
-              </div>
-              <div className="contribution-card-actions">
-                <Button variant="outline" size="sm" asChild className="contribution-btn">
-                  <a href="https://github.com/AnhNTSE183225/music-bot" target="_blank" rel="noopener noreferrer">
-                    <Github size={14} className="mr-1.5" />
-                    Contribute on Backend
-                  </a>
-                </Button>
-                <Button variant="ghost" size="sm" asChild className="contribution-btn text-muted-foreground hover:text-foreground">
-                  <a href="https://github.com/AnhNTSE183225/music-bot/issues" target="_blank" rel="noopener noreferrer">
-                    <Bug size={14} className="mr-1.5 text-amber-400" />
-                    Report Bot Bug
-                  </a>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <footer className="app-footer">
           <span>Music brings us together.</span>
           <div className="flex items-center gap-2">
@@ -2209,8 +2244,8 @@ function MusicRoom() {
         </div>
       )}
 
-      {/* Overlay: Logged in but not in a voice channel */}
-      {isAuthLoaded && user && !isVoiceConnected && (
+      {/* Overlay: Logged in but not in a voice channel (exclusive to the listening room) */}
+      {isAuthLoaded && user && !isVoiceConnected && roomView === 'room' && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="max-w-md w-full p-8 text-center glass-surface flex flex-col items-center gap-6 rounded-2xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             <div className="flex flex-col items-center gap-2.5">
@@ -2223,7 +2258,7 @@ function MusicRoom() {
             <div className="space-y-2">
               <h2 className="text-xl font-semibold tracking-tight">Join a voice channel</h2>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                You are signed in as <strong className="text-foreground">{user.username}</strong>, but you are not currently in a voice channel in a Discord server where MusicBỏTúi is present.
+                You are signed in as <strong className="text-foreground">{user.username}</strong>, but you are not currently in a voice channel in {currentGuild ? <strong className="text-foreground">{currentGuild.name}</strong> : 'a Discord server where MusicBỏTúi is present'}.
               </p>
               <p className="text-muted-foreground text-xs">
                 Hop into any voice channel in Discord so MusicBỏTúi can stream music, sync lyrics, and manage the queue.
@@ -2240,6 +2275,17 @@ function MusicRoom() {
                 <RefreshCw className={`w-4 h-4 ${isCheckingVoice ? 'animate-spin' : ''}`} />
                 {isCheckingVoice ? 'Checking channel status...' : "I've joined a voice channel"}
               </Button>
+
+              <Button
+                variant="outline"
+                size="lg"
+                className="w-full font-medium flex items-center justify-center gap-2 cursor-pointer"
+                onClick={() => setRoomView('schedule')}
+              >
+                <CalendarDays className="w-4 h-4 text-primary" />
+                View Server Calendar & Events
+              </Button>
+
               <div className="flex items-center justify-between text-xs text-muted-foreground px-1 pt-1">
                 <span>Wrong Discord account?</span>
                 <button

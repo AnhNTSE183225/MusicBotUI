@@ -94,22 +94,41 @@ export interface GuildSession {
 
 export async function getGuilds(): Promise<{ guilds: GuildSession[] }> {
     try {
-        const data = await fetchApi("/voice_status");
-        if (!data || !Array.isArray(data.sessions)) {
-            return { guilds: [] };
+        let data: any = null;
+        try {
+            data = await fetchApi("/guilds");
+        } catch {
+            data = await fetchApi("/voice_status");
         }
-        const guilds: GuildSession[] = data.sessions.map((s: any) => ({
-            id: String(s.guild_id),
-            name: s.guild_name || 'Server',
-            icon: s.guild_icon || null,
-            channel_id: s.channel_id ? String(s.channel_id) : undefined,
-            channel_name: s.channel_name || undefined,
-            bot_connected: Boolean(s.bot_connected),
-            is_admin: Boolean(s.is_admin)
-        }));
-        return { guilds };
+
+        if (data?.guilds && Array.isArray(data.guilds)) {
+            const guilds: GuildSession[] = data.guilds.map((g: any) => ({
+                id: String(g.id),
+                name: g.name || 'Server',
+                icon: g.icon || null,
+                channel_id: g.channel_id ? String(g.channel_id) : undefined,
+                channel_name: g.channel_name || undefined,
+                bot_connected: Boolean(g.bot_connected),
+                is_admin: Boolean(g.is_admin),
+            }));
+            return { guilds };
+        }
+
+        if (data?.sessions && Array.isArray(data.sessions)) {
+            const guilds: GuildSession[] = data.sessions.map((s: any) => ({
+                id: String(s.guild_id),
+                name: s.guild_name || 'Server',
+                icon: s.guild_icon || null,
+                channel_id: s.channel_id ? String(s.channel_id) : undefined,
+                channel_name: s.channel_name || undefined,
+                bot_connected: Boolean(s.bot_connected),
+                is_admin: Boolean(s.is_admin),
+            }));
+            return { guilds };
+        }
+        return { guilds: [] };
     } catch (e) {
-        console.error("Failed to fetch guilds voice status", e);
+        console.error("Failed to fetch guilds", e);
         return { guilds: [] };
     }
 }
@@ -378,3 +397,119 @@ export async function addPlaylist(
         body: JSON.stringify(payload),
     });
 }
+
+// ---------------------------------------------------------------------------
+// Server Schedule & Calendar API
+// ---------------------------------------------------------------------------
+
+export interface ServerMember {
+    id: string;
+    name: string;
+    avatar: string;
+}
+
+export interface ServerChannel {
+    id: string;
+    name: string;
+    type: 'voice' | 'stage';
+}
+
+export interface ScheduleEventLocation {
+    kind: 'discord' | 'address' | 'link';
+    channelId?: string;
+    channelName?: string;
+    address?: string;
+    url?: string;
+}
+
+export interface ScheduleEventLink {
+    label: string;
+    url: string;
+}
+
+export interface ScheduleEventRecurrence {
+    freq: 'daily' | 'weekly' | 'monthly';
+    interval: number;
+    weekdays?: number[];
+    until?: string | null;
+    count?: number | null;
+}
+
+export type RsvpStatus = 'accepted' | 'tentative' | 'declined';
+export type RsvpScope = 'occurrence' | 'series';
+
+export type EventCategory = 'gaming' | 'food' | 'outdoor' | 'other';
+
+export interface ScheduleEvent {
+    id: string;
+    guildId: string;
+    title: string;
+    description: string;
+    category?: EventCategory;
+    start: string;
+    durationMinutes: number;
+    recurrence: ScheduleEventRecurrence | null;
+    location: ScheduleEventLocation | null;
+    imageUrl?: string | null;
+    links: ScheduleEventLink[];
+    organizerId: string;
+    organizerName?: string;
+    organizerAvatar?: string | null;
+    inviteEveryone: boolean;
+    inviteeIds: string[];
+    seriesResponses: Record<string, RsvpStatus>;
+    occurrenceResponses: Record<string, Record<string, RsvpStatus>>;
+    cancelledOccurrences: string[];
+    createdAt?: number;
+    updatedAt?: number;
+}
+
+export interface ScheduleDataResponse {
+    events: ScheduleEvent[];
+    members: ServerMember[];
+    channels: ServerChannel[];
+}
+
+export async function getSchedule(guildId: string): Promise<ScheduleDataResponse> {
+    return await fetchApi(`/schedule/${guildId}`);
+}
+
+export async function createScheduleEvent(guildId: string, eventData: Partial<ScheduleEvent>): Promise<{ status: string; event: ScheduleEvent }> {
+    return await fetchApi(`/schedule/${guildId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(eventData),
+    });
+}
+
+export async function updateScheduleEvent(guildId: string, eventId: string, eventData: Partial<ScheduleEvent>): Promise<{ status: string; event: ScheduleEvent }> {
+    return await fetchApi(`/schedule/${guildId}/${eventId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(eventData),
+    });
+}
+
+export async function deleteScheduleEvent(guildId: string, eventId: string, occurrence?: string): Promise<{ status: string }> {
+    const url = occurrence ? `/schedule/${guildId}/${eventId}?occurrence=${encodeURIComponent(occurrence)}` : `/schedule/${guildId}/${eventId}`;
+    return await fetchApi(url, {
+        method: 'DELETE',
+    });
+}
+
+export async function respondScheduleEvent(guildId: string, eventId: string, key: string, status: RsvpStatus, scope: RsvpScope): Promise<{ status: string; event: ScheduleEvent }> {
+    return await fetchApi(`/schedule/${guildId}/${eventId}/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, status, scope }),
+    });
+}
+
+export async function getGuildMembers(guildId: string): Promise<{ members: ServerMember[] }> {
+    return await fetchApi(`/guild/${guildId}/members`);
+}
+
+export async function getGuildChannels(guildId: string): Promise<{ channels: ServerChannel[] }> {
+    return await fetchApi(`/guild/${guildId}/channels`);
+}
+

@@ -72,10 +72,10 @@ describe('Patch Notes & Versioning System', () => {
   })
 
   it('exposes accurate versioning metadata in patchNotes.ts', () => {
-    expect(CURRENT_VERSION).toBe('1.3.0')
-    expect(LATEST_PATCH.version).toBe('1.3.0')
-    expect(LATEST_PATCH.headline).toBe('Release Notifications & Sleek Sync Badges')
-    expect(PATCH_NOTES.length).toBeGreaterThanOrEqual(4)
+    expect(CURRENT_VERSION).toBe('1.4.0')
+    expect(LATEST_PATCH.version).toBe('1.4.0')
+    expect(LATEST_PATCH.headline).toBe('Server Schedule & Event Calendar')
+    expect(PATCH_NOTES.length).toBeGreaterThanOrEqual(5)
   })
 
   it('renders PatchNotesModal with all historical versions and feature bullets', () => {

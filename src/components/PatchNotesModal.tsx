@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Sparkles, Calendar, CheckCircle2, Check, CheckCheck, RotateCcw, EyeOff, Bell } from 'lucide-react'
+import { Calendar, CheckCircle2, Check, CheckCheck, RotateCcw, EyeOff, Bell } from 'lucide-react'
 import { PATCH_NOTES, CURRENT_VERSION, type PatchNote, usePatchNotesReadState } from '@/data/patchNotes'
 import logoIcon from '@/assets/logo_icon.svg'
 
@@ -95,8 +95,8 @@ export function PatchNotesModal({ open, onOpenChange }: PatchNotesModalProps) {
                     <h3 className="font-semibold text-sm text-foreground flex items-center gap-1.5">
                       {patch.headline}
                       {isLatest && (
-                        <span className="flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/15 px-1.5 py-0.2 rounded-full border border-primary/25">
-                          <Sparkles size={10} /> Latest
+                        <span className="flex items-center gap-1.5 text-[10px] font-medium text-primary bg-primary/15 px-2 py-0.5 rounded-full border border-primary/25">
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary" /> Latest
                         </span>
                       )}
                     </h3>

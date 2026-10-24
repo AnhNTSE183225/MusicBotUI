@@ -37,12 +37,21 @@ describe('Voice channel gating & Contribution section', () => {
     expect(main).toHaveAttribute('inert')
   })
 
-  it('displays join voice channel overlay and blurs main UI when logged in but not in VC', async () => {
+  it('automatically redirects to Schedule tab when logged in but not in VC, and displays join voice channel overlay when switching to Listening room', async () => {
     vi.mocked(api.checkAuth).mockResolvedValue({ id: '12345', username: 'TestUser', avatar: null })
     vi.mocked(api.getGuilds).mockResolvedValue({ guilds: [] })
 
     const Component = Route.options.component!
     render(<Component />)
+
+    // Automatically redirected to Schedule tab on load when not in VC
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: /Server schedule/i })).toBeInTheDocument()
+    })
+
+    // User navigates back to Listening room
+    const listeningBtn = screen.getByRole('tab', { name: /Listening room/i })
+    listeningBtn.click()
 
     await waitFor(() => {
       expect(screen.getByText('Join a voice channel')).toBeInTheDocument()
@@ -82,7 +91,7 @@ describe('Voice channel gating & Contribution section', () => {
     expect(main).not.toHaveAttribute('inert')
   })
 
-  it('renders open-source contribution section with UI and backend github links', async () => {
+  it('opens contribution modal with UI and backend github links from footer', async () => {
     vi.mocked(api.checkAuth).mockResolvedValue({ id: '12345', username: 'TestUser', avatar: null })
     vi.mocked(api.getGuilds).mockResolvedValue({
       guilds: [
@@ -101,7 +110,14 @@ describe('Voice channel gating & Contribution section', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Live Session')).toBeInTheDocument()
-      expect(screen.getByText('Want to contribute or report a bug?')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Contribute & Bugs/i })).toBeInTheDocument()
+    })
+
+    const contributeBtn = screen.getByRole('button', { name: /Contribute & Bugs/i })
+    contributeBtn.click()
+
+    await waitFor(() => {
+      expect(screen.getByText('Contribute to MusicBỏTúi & Report Bugs')).toBeInTheDocument()
     })
 
     const uiLink = screen.getAllByRole('link', { name: /AnhNTSE183225\/MusicBotUI/i })[0]
@@ -110,5 +126,35 @@ describe('Voice channel gating & Contribution section', () => {
     const backendLink = screen.getAllByRole('link', { name: /AnhNTSE183225\/music-bot/i })[0]
     expect(backendLink).toHaveAttribute('href', 'https://github.com/AnhNTSE183225/music-bot')
   })
-})
 
+  it('allows accessing Calendar without voice channel and provides server selector', async () => {
+    vi.mocked(api.checkAuth).mockResolvedValue({ id: '12345', username: 'TestUser', avatar: null })
+    vi.mocked(api.getGuilds).mockResolvedValue({
+      guilds: [
+        {
+          id: 'guild1',
+          name: 'Gaming Community',
+          bot_connected: false,
+        },
+        {
+          id: 'guild2',
+          name: 'Anime Lounge',
+          bot_connected: false,
+        },
+      ],
+    })
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    // Automatically lands directly on Schedule tab without voice channel gating
+    await waitFor(() => {
+      expect(screen.queryByText('Join a voice channel')).not.toBeInTheDocument()
+      expect(screen.getByRole('region', { name: /Server schedule/i })).toBeInTheDocument()
+    })
+
+    const main = document.querySelector('.room-main')
+    expect(main).not.toHaveStyle('filter: blur(12px)')
+    expect(main).not.toHaveAttribute('inert')
+  })
+})
