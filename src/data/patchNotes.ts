@@ -12,6 +12,19 @@ export const READ_PATCH_STORAGE_KEY = 'musicbot_read_patch_versions';
 
 export const PATCH_NOTES: PatchNote[] = [
   {
+    version: '1.5.2',
+    date: '2026-11-05',
+    headline: 'Schedule Reliability, Exact Event Reminders & Faster Song Queueing',
+    summary: 'Delivers a smoother calendar experience, on-the-minute Discord event notifications, faster single-song additions from YouTube links, and accurate playback timer bounds.',
+    details: [
+      'Reliable Server Schedule loading: resolved intermittent connection errors when opening the calendar or switching between Discord servers',
+      'On-the-minute Discord event reminders: 15-minute advance alerts and "Event Starting Now" notifications now arrive at the exact scheduled time instead of one minute early',
+      'Faster single-song queueing: pasting a YouTube link into the search bar and clicking Add (+) now immediately adds just that song, ignoring any attached playlist to save loading time',
+      'Dedicated Playlist Import button: click the Add Playlist icon in the search bar whenever you want to detect a playlist from a link and choose a custom range of songs to import',
+      'Accurate playback progress display: fixed an edge case where the elapsed track timer could briefly count past the song’s total duration',
+    ],
+  },
+  {
     version: '1.5.1',
     date: '2026-10-24',
     headline: 'Event Deep-Link Polish & Dismissal Fix',

@@ -35,6 +35,8 @@ vi.mock('@/lib/api', async () => {
     getLyrics: vi.fn().mockResolvedValue({ lyrics: null }),
     getAIAutoQueue: vi.fn().mockResolvedValue({ enabled: false, prompt: '', count: 5, threshold: 2 }),
     setAIAutoQueue: vi.fn().mockResolvedValue({ status: 'ok' }),
+    getSchedule: vi.fn().mockResolvedValue({ events: [], members: [], channels: [] }),
+    getGeminiKeys: vi.fn().mockResolvedValue({ keys: [] }),
     previewPlaylist: vi.fn(),
     addPlaylist: vi.fn(),
     addSong: vi.fn(),
@@ -273,7 +275,7 @@ describe('UI Integration & Dedicated Playlist Button vs Normal Paste', () => {
     render(<Component />)
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Paste a link or search for a song/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Add to queue/i })).toBeInTheDocument()
     })
 
     const searchInput = screen.getByPlaceholderText(/Paste a link or search for a song/i)

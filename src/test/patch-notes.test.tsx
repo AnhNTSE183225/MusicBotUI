@@ -72,9 +72,9 @@ describe('Patch Notes & Versioning System', () => {
   })
 
   it('exposes accurate versioning metadata in patchNotes.ts', () => {
-    expect(CURRENT_VERSION).toBe('1.5.1')
-    expect(LATEST_PATCH.version).toBe('1.5.1')
-    expect(LATEST_PATCH.headline).toBe('Event Deep-Link Polish & Dismissal Fix')
+    expect(CURRENT_VERSION).toBe('1.5.2')
+    expect(LATEST_PATCH.version).toBe('1.5.2')
+    expect(LATEST_PATCH.headline).toBe('Schedule Reliability, Exact Event Reminders & Faster Song Queueing')
     expect(PATCH_NOTES.length).toBeGreaterThanOrEqual(5)
   })
 
