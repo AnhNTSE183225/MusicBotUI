@@ -188,6 +188,7 @@ interface GuildScheduleState {
 }
 
 const scheduleCache = new Map<string, GuildScheduleState>()
+const inFlightScheduleFetches = new Map<string, Promise<void>>()
 const listeners = new Set<() => void>()
 const notify = () => listeners.forEach((l) => l())
 
@@ -201,6 +202,18 @@ export function getCachedSchedule(guildId: string | null | undefined): GuildSche
 }
 
 export async function fetchSchedule(guildId: string): Promise<void> {
+  const existing = inFlightScheduleFetches.get(guildId)
+  if (existing) {
+    return existing
+  }
+  const promise = _doFetchSchedule(guildId).finally(() => {
+    inFlightScheduleFetches.delete(guildId)
+  })
+  inFlightScheduleFetches.set(guildId, promise)
+  return promise
+}
+
+async function _doFetchSchedule(guildId: string): Promise<void> {
   const prev = scheduleCache.get(guildId)
   scheduleCache.set(guildId, {
     events: prev?.events ?? [],

@@ -46,7 +46,26 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
     
     options.headers = headers;
     
-    const res = await fetch(`${API_URL}${endpoint}`, options);
+    const isGet = !options.method || options.method.toUpperCase() === "GET";
+    const maxAttempts = isGet ? 3 : 1;
+    let res: Response | null = null;
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            res = await fetch(`${API_URL}${endpoint}`, options);
+            break;
+        } catch (err) {
+            lastErr = err;
+            if (attempt < maxAttempts) {
+                await new Promise((r) => setTimeout(r, attempt * 250));
+            } else {
+                throw err;
+            }
+        }
+    }
+    if (!res) {
+        throw lastErr || new Error("Network request failed");
+    }
     if (res.status === 401) {
         throw new Error("Unauthorized");
     }

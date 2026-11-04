@@ -397,7 +397,7 @@ function MusicRoom() {
     try {
       const g = await getGuilds();
       const list = g.guilds || [];
-      setGuilds(list);
+      if (list.length > 0) setGuilds(list);
       if (list.length > 0) {
         const activeVoiceGuild = list.find((item) => Boolean(item.channel_id));
         const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -426,7 +426,7 @@ function MusicRoom() {
           setSummoned(active.bot_connected);
         }
       } else {
-        setCurrentGuildId(null);
+        setCurrentGuildId((prev) => prev ?? null);
         setSummoned(false);
       }
     } catch (e) {
@@ -452,7 +452,7 @@ function MusicRoom() {
         const g = await getGuilds();
         if (!isMounted) return;
         const list = g.guilds || [];
-        setGuilds(list);
+        if (list.length > 0) setGuilds(list);
         if (list.length > 0) {
           const savedGuildId = typeof window !== 'undefined' ? localStorage.getItem('selected_guild_id') : null;
           const matchedSaved = savedGuildId && list.find((item) => item.id === savedGuildId);
@@ -462,7 +462,7 @@ function MusicRoom() {
           setCurrentGuildId(initialGuild.id);
           setSummoned(initialGuild.bot_connected);
         } else {
-          setCurrentGuildId(null);
+          setCurrentGuildId((prev) => prev ?? null);
           setSummoned(false);
         }
       }
