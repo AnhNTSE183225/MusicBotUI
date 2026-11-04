@@ -966,12 +966,13 @@ function MusicRoom() {
             onClick={() => setPatchNotesOpen(true)}
             className="patch-notes-pill"
             aria-label={`View release notes${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+            suppressHydrationWarning
           >
             <span className="patch-version">v{CURRENT_VERSION}</span>
             <span className="patch-sep">•</span>
             <span className="patch-highlight">{LATEST_PATCH.headline}</span>
             {unreadCount > 0 ? (
-              <span className="patch-unread-badge" aria-label={`${unreadCount} unread updates`}>
+              <span className="patch-unread-badge" aria-label={`${unreadCount} unread updates`} suppressHydrationWarning>
                 {unreadCount}
               </span>
             ) : (
