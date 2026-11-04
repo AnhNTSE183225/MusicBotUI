@@ -11,7 +11,7 @@ import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, con
 
 import { MarqueeText } from '@/components/MarqueeText'
 import { PlaylistModal } from '@/components/PlaylistModal'
-import { isYouTubePlaylistUrl } from '@/lib/youtube'
+import { isYouTubePlaylistUrl, stripPlaylistFromUrl } from '@/lib/youtube'
 import { PatchNotesModal } from '@/components/PatchNotesModal'
 import { CURRENT_VERSION, LATEST_PATCH, usePatchNotesReadState } from '@/data/patchNotes'
 import { ScheduleView } from '@/components/ScheduleView'
@@ -183,10 +183,10 @@ function MusicRoom() {
     const timer = setInterval(() => {
       const elapsed = (performance.now() - syncRef.current.syncTime) / 1000;
       const currentPos = syncRef.current.basePos + elapsed;
-      setPosition(currentPos);
+      setPosition(current?.duration && current.duration > 0 ? Math.min(currentPos, current.duration) : currentPos);
     }, 100);
     return () => clearInterval(timer);
-  }, [playing, stopped]);
+  }, [playing, stopped, current?.duration]);
 
   const fetchLyrics = useCallback(async (isRetry = false) => {
     if (!currentGuildId || !current || stopped) {
@@ -527,7 +527,9 @@ function MusicRoom() {
               setStopped(false);
               const isPaused = !!state.is_paused;
               setPlaying(!isPaused);
-              const serverPos = typeof state.position === 'number' ? state.position : 0;
+              const rawPos = typeof state.position === 'number' ? state.position : 0;
+              const trackDur = state.current.duration || 0;
+              const serverPos = trackDur > 0 ? Math.min(rawPos, trackDur) : rawPos;
               syncRef.current = { basePos: serverPos, syncTime: performance.now() };
               setPosition(serverPos);
             } else {
@@ -759,8 +761,8 @@ function MusicRoom() {
   const handleAddSong = useCallback(async (e: React.FormEvent) => {
       e.preventDefault();
       if (!query.trim() || !currentGuildId || !isVoiceConnected) return;
-      const url = query.trim();
-      if (isYouTubePlaylistUrl(url)) {
+      const url = stripPlaylistFromUrl(query.trim());
+      if (false && isYouTubePlaylistUrl(url)) {
           setPlaylistModalInitialUrl(url);
           setPlaylistModalOpen(true);
           setQuery('');
@@ -1231,7 +1233,7 @@ function MusicRoom() {
                 <span>Shared queue</span>
               </div>
             )}
-            <div className="progress-area"><div className="progress-track" role="progressbar" aria-label="Track progress" aria-valuenow={stopped ? 0 : position} aria-valuemin={0} aria-valuemax={displayCurrent.duration}><progress value={stopped ? 0 : position} max={displayCurrent.duration} /></div><div className="time-labels"><span>{formatTime(stopped ? 0 : position)}</span><span>{formatTime(displayCurrent.duration)}</span></div></div>
+            <div className="progress-area">{(() => { const clampedPos = stopped ? 0 : (displayCurrent.duration > 0 ? Math.min(position, displayCurrent.duration) : position); return (<><div className="progress-track" role="progressbar" aria-label="Track progress" aria-valuenow={clampedPos} aria-valuemin={0} aria-valuemax={displayCurrent.duration}><progress value={clampedPos} max={displayCurrent.duration} /></div><div className="time-labels"><span>{formatTime(clampedPos)}</span><span>{formatTime(displayCurrent.duration)}</span></div></>); })()}</div>
             <div className="playback-controls">
                 <IconControl label={loop ? 'Disable loop' : 'Loop track'} active={loop} onClick={handleLoop}><Repeat2 /></IconControl>
                 <IconControl label="Previous track" disabled><SkipBack className="fill-current opacity-50" /></IconControl>
@@ -1455,7 +1457,13 @@ function MusicRoom() {
                       className="h-[27px] w-[27px] text-muted-foreground hover:text-foreground shrink-0"
                       onClick={() => {
                         const trimmed = query.trim();
-                        setPlaylistModalInitialUrl(isYouTubePlaylistUrl(trimmed) ? trimmed : '');
+
+                        if (isYouTubePlaylistUrl(trimmed)) {
+                          setPlaylistModalInitialUrl(trimmed);
+                          setQuery('');
+                        } else {
+                          setPlaylistModalInitialUrl('');
+                        }
                         setPlaylistModalOpen(true);
                       }}
                     >

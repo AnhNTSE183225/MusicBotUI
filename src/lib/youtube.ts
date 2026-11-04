@@ -54,3 +54,45 @@ export function cleanPlaylistUrl(query: string): string {
     return trimmed;
   }
 }
+
+/**
+ * Strips playlist parameters (list, index, start_radio) from a YouTube URL
+ * so normal paste/submit ignores the playlist and adds only the single song.
+ */
+export function stripPlaylistFromUrl(query: string): string {
+  if (!query || typeof query !== 'string') return '';
+  const trimmed = query.trim();
+
+  if (!/(?:youtube\.com|youtu\.be)/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const urlObj = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    let videoId = urlObj.searchParams.get('v');
+
+    if (!videoId && urlObj.hostname.toLowerCase().includes('youtu.be')) {
+      const parts = urlObj.pathname.replace(/^\/+/, '').split('/');
+      if (parts[0]) videoId = parts[0];
+    } else if (!videoId && urlObj.pathname.includes('/embed/')) {
+      const parts = urlObj.pathname.split('/embed/')[1]?.split('/');
+      if (parts?.[0]) videoId = parts[0];
+    } else if (!videoId && urlObj.pathname.includes('/shorts/')) {
+      const parts = urlObj.pathname.split('/shorts/')[1]?.split('/');
+      if (parts?.[0]) videoId = parts[0];
+    }
+
+    if (videoId) {
+      return `https://www.youtube.com/watch?v=${videoId}`;
+    }
+
+    return trimmed;
+  } catch {
+    // Regex fallback for watch?v=...&list=...
+    const vMatch = trimmed.match(/[?&]v=([^&#]+)/i);
+    if (vMatch && vMatch[1]) {
+      return `https://www.youtube.com/watch?v=${vMatch[1]}`;
+    }
+    return trimmed;
+  }
+}

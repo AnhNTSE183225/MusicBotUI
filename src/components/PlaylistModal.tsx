@@ -170,6 +170,14 @@ export function PlaylistModal({
               placeholder="Paste YouTube playlist URL (e.g. https://www.youtube.com/playlist?list=...)"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
+              onPaste={(e) => {
+                const pasted = e.clipboardData?.getData('text')?.trim();
+                if (pasted && isYouTubePlaylistUrl(pasted)) {
+                  e.preventDefault();
+                  setUrl(pasted);
+                  handleFetchPreview(pasted);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();

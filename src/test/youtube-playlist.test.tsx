@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import * as api from '@/lib/api'
-import { isYouTubePlaylistUrl, cleanPlaylistUrl } from '@/lib/youtube'
+import { isYouTubePlaylistUrl, cleanPlaylistUrl, stripPlaylistFromUrl } from '@/lib/youtube'
 import { PlaylistModal } from '@/components/PlaylistModal'
 import { Route } from '@/routes/index'
 
@@ -76,6 +76,12 @@ describe('YouTube Playlist Detection Utility', () => {
   it('cleans playlist URLs to canonical format', () => {
     expect(cleanPlaylistUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL12345')).toBe('https://www.youtube.com/playlist?list=PL12345')
     expect(cleanPlaylistUrl('https://www.youtube.com/watch?v=abc&list=RDabc')).toBe('https://www.youtube.com/watch?v=abc&list=RDabc')
+  })
+
+  it('strips playlist parameters when extracting single video URL', () => {
+    expect(stripPlaylistFromUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL12345&index=3')).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+    expect(stripPlaylistFromUrl('https://youtu.be/dQw4w9WgXcQ?list=RDdQw4w9WgXcQ')).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+    expect(stripPlaylistFromUrl('lofi hip hop radio')).toBe('lofi hip hop radio')
   })
 })
 
@@ -213,7 +219,7 @@ describe('PlaylistModal Component', () => {
   })
 })
 
-describe('UI Integration & Frontend Interception', () => {
+describe('UI Integration & Dedicated Playlist Button vs Normal Paste', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     MockEventSource.instances = []
@@ -235,7 +241,7 @@ describe('UI Integration & Frontend Interception', () => {
     })
   })
 
-  it('renders separate subtle playlist add button in queue search bar', async () => {
+  it('detects playlist of URL when clicking the dedicated Add playlist button', async () => {
     const Component = Route.options.component!
     render(<Component />)
 
@@ -243,16 +249,26 @@ describe('UI Integration & Frontend Interception', () => {
       expect(screen.getByRole('button', { name: /Add playlist/i })).toBeInTheDocument()
     })
 
-    // Click playlist button opens the playlist modal
+    const searchInput = screen.getByPlaceholderText(/Paste a link or search for a song/i)
+    fireEvent.change(searchInput, {
+      target: { value: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAlGndGk_3fFm_H4P-uO_T4tXGfW2nC3' },
+    })
+
+    // Click dedicated playlist button detects playlist and opens modal
     const playlistBtn = screen.getByRole('button', { name: /Add playlist/i })
     fireEvent.click(playlistBtn)
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /Add YouTube Playlist/i })).toBeInTheDocument()
+      expect(api.previewPlaylist).toHaveBeenCalledWith(
+        'guild1',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAlGndGk_3fFm_H4P-uO_T4tXGfW2nC3'
+      )
     })
   })
 
-  it('intercepts playlist URLs pasted into the search bar without calling single song addSong', async () => {
+  it('ignores playlist and adds single song on normal paste/submit', async () => {
+    vi.mocked(api.addSong).mockResolvedValue({ status: 'ok' } as any)
     const Component = Route.options.component!
     render(<Component />)
 
@@ -263,21 +279,52 @@ describe('UI Integration & Frontend Interception', () => {
     const searchInput = screen.getByPlaceholderText(/Paste a link or search for a song/i)
     const addBtn = screen.getByRole('button', { name: /Add to queue/i })
 
-    // User pastes a playlist URL
+    // User pastes a YouTube video URL with a playlist parameter
     fireEvent.change(searchInput, {
-      target: { value: 'https://www.youtube.com/playlist?list=PLrAlGndGk_3fFm_H4P-uO_T4tXGfW2nC3' },
+      target: { value: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAlGndGk_3fFm_H4P-uO_T4tXGfW2nC3' },
     })
 
-    // User submits
+    // User submits normally
     fireEvent.click(addBtn)
 
-    // Should NOT call addSong on backend!
-    expect(api.addSong).not.toHaveBeenCalled()
-
-    // Instead, it intercepted and opened the Playlist Modal with this URL
+    // Should strip playlist param and call addSong with single video URL, without opening PlaylistModal
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Add YouTube Playlist/i })).toBeInTheDocument()
-      expect(api.previewPlaylist).toHaveBeenCalledWith('guild1', 'https://www.youtube.com/playlist?list=PLrAlGndGk_3fFm_H4P-uO_T4tXGfW2nC3')
+      expect(api.addSong).toHaveBeenCalledWith('guild1', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+    })
+    expect(api.previewPlaylist).not.toHaveBeenCalled()
+  })
+
+  it('clamps playback position to track duration when server position exceeds total duration (e.g. 3:30 vs 3:16)', async () => {
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(MockEventSource.instances.length).toBeGreaterThan(0)
+    })
+
+    const es = MockEventSource.instances[0]
+    es.emit({
+      current: {
+        title: 'Choke',
+        artist: 'I DONT KNOW HOW BUT THEY FOUND ME',
+        duration: 196, // 3:16
+        requester_name: 'dhthao_0814',
+        source: 'discord',
+      },
+      queue: [],
+      playing: true,
+      paused: false,
+      stopped: false,
+      position: 210, // 3:30 reported
+      loop_mode: 'off',
+      is_voice_connected: true,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Choke')).toBeInTheDocument()
+      // Both current time and total duration should display 3:16 (clamped), never 3:30
+      expect(screen.queryByText('3:30')).not.toBeInTheDocument()
+      expect(screen.getAllByText('3:16').length).toBeGreaterThanOrEqual(2)
     })
   })
 })
