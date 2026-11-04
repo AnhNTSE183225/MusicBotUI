@@ -1233,7 +1233,7 @@ function MusicRoom() {
                 <span>Shared queue</span>
               </div>
             )}
-            <div className="progress-area">{(() => { const clampedPos = stopped ? 0 : (displayCurrent.duration > 0 ? Math.min(position, displayCurrent.duration) : position); return (<><div className="progress-track" role="progressbar" aria-label="Track progress" aria-valuenow={clampedPos} aria-valuemin={0} aria-valuemax={displayCurrent.duration}><progress value={clampedPos} max={displayCurrent.duration} /></div><div className="time-labels"><span>{formatTime(clampedPos)}</span><span>{formatTime(displayCurrent.duration)}</span></div></>); })()}</div>
+            <div className="progress-area">{(() => { const clampedPos = stopped ? 0 : (displayCurrent.duration > 0 ? Math.min(position, displayCurrent.duration) : position); const safeMax = displayCurrent.duration > 0 ? displayCurrent.duration : 1; return (<><div className="progress-track" role="progressbar" aria-label="Track progress" aria-valuenow={clampedPos} aria-valuemin={0} aria-valuemax={displayCurrent.duration}><progress value={displayCurrent.duration > 0 ? clampedPos : 0} max={safeMax} /></div><div className="time-labels"><span>{formatTime(clampedPos)}</span><span>{formatTime(displayCurrent.duration)}</span></div></>); })()}</div>
             <div className="playback-controls">
                 <IconControl label={loop ? 'Disable loop' : 'Loop track'} active={loop} onClick={handleLoop}><Repeat2 /></IconControl>
                 <IconControl label="Previous track" disabled><SkipBack className="fill-current opacity-50" /></IconControl>

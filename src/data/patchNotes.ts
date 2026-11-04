@@ -21,7 +21,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'On-the-minute Discord event reminders: 15-minute advance alerts and "Event Starting Now" notifications now arrive at the exact scheduled time instead of one minute early',
       'Faster single-song queueing: pasting a YouTube link into the search bar and clicking Add (+) now immediately adds just that song, ignoring any attached playlist to save loading time',
       'Dedicated Playlist Import button: click the Add Playlist icon in the search bar whenever you want to detect a playlist from a link and choose a custom range of songs to import',
-      'Accurate playback progress display: fixed an edge case where the elapsed track timer could briefly count past the song’s total duration',
+      'Accurate playback progress display: fixed an edge case where the elapsed track timer could briefly count past the song’s total duration, and fixed progress bar track rendering in Firefox',
     ],
   },
   {
