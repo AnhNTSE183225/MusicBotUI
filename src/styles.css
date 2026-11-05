@@ -1531,3 +1531,80 @@ h1 { font-family: var(--font-display); font-size: 24px; font-weight: 600; line-h
   .agenda-list { overflow: visible; }
 }
 
+/* ============================================================
+   Drag & Drop YouTube Link Overlay
+   ============================================================ */
+.drag-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklch, var(--background) 82%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  pointer-events: auto;
+  animation: drag-overlay-fade-in 0.18s ease-out;
+}
+
+.drag-drop-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  max-width: 440px;
+  width: calc(100vw - 48px);
+  padding: 42px 28px;
+  border-radius: 18px;
+  background: color-mix(in oklch, var(--card) 90%, transparent);
+  border: 2px dashed var(--primary);
+  box-shadow: 0 0 45px color-mix(in oklch, var(--primary) 32%, transparent), var(--glass-shadow);
+  text-align: center;
+  pointer-events: none;
+  animation: drag-content-scale-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.drag-drop-icon-wrapper {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 40%, transparent);
+  color: var(--primary);
+  box-shadow: 0 0 24px color-mix(in oklch, var(--primary) 30%, transparent);
+  animation: drag-icon-pulse 1.8s ease-in-out infinite;
+}
+
+.drag-drop-title {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--foreground);
+  letter-spacing: -0.01em;
+}
+
+.drag-drop-desc {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+@keyframes drag-overlay-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes drag-content-scale-in {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes drag-icon-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); box-shadow: 0 0 32px color-mix(in oklch, var(--primary) 50%, transparent); }
+}

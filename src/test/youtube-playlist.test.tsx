@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import * as api from '@/lib/api'
-import { isYouTubePlaylistUrl, cleanPlaylistUrl, stripPlaylistFromUrl } from '@/lib/youtube'
+import { isYouTubePlaylistUrl, cleanPlaylistUrl, stripPlaylistFromUrl, isYouTubeUrl, extractYouTubeUrlFromDataTransfer } from '@/lib/youtube'
 import { PlaylistModal } from '@/components/PlaylistModal'
 import { Route } from '@/routes/index'
 
@@ -85,7 +85,36 @@ describe('YouTube Playlist Detection Utility', () => {
     expect(stripPlaylistFromUrl('https://youtu.be/dQw4w9WgXcQ?list=RDdQw4w9WgXcQ')).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
     expect(stripPlaylistFromUrl('lofi hip hop radio')).toBe('lofi hip hop radio')
   })
-})
+  it('detects valid YouTube and YouTube Music URLs', () => {
+    expect(isYouTubeUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true)
+    expect(isYouTubeUrl('https://youtu.be/dQw4w9WgXcQ')).toBe(true)
+    expect(isYouTubeUrl('https://music.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true)
+    expect(isYouTubeUrl('https://m.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true)
+    expect(isYouTubeUrl('https://youtube.com/shorts/dQw4w9WgXcQ')).toBe(true)
+    expect(isYouTubeUrl('https://spotify.com/track/123')).toBe(false)
+    expect(isYouTubeUrl('random search query')).toBe(false)
+  })
+
+  it('extracts YouTube URLs from various DataTransfer formats', () => {
+    // uri-list format
+    const uriTransfer = {
+      getData: (type: string) => type === 'text/uri-list' ? 'https://www.youtube.com/watch?v=dQw4w9WgXcQ\n' : ''
+    } as any
+    expect(extractYouTubeUrlFromDataTransfer(uriTransfer)).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+
+    // plain text format with surrounding text
+    const plainTransfer = {
+      getData: (type: string) => type === 'text/plain' ? 'Check this out: https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RD123 cool' : ''
+    } as any
+    expect(extractYouTubeUrlFromDataTransfer(plainTransfer)).toBe('https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RD123')
+
+    // html anchor format
+    const htmlTransfer = {
+      getData: (type: string) => type === 'text/html' ? '<a href="https://youtu.be/dQw4w9WgXcQ">Video</a>' : ''
+    } as any
+    expect(extractYouTubeUrlFromDataTransfer(htmlTransfer)).toBe('https://youtu.be/dQw4w9WgXcQ')
+  })
+});
 
 describe('PlaylistModal Component', () => {
   const mockPreviewData: api.PlaylistPreviewResponse = {
@@ -329,4 +358,65 @@ describe('UI Integration & Dedicated Playlist Button vs Normal Paste', () => {
       expect(screen.getAllByText('3:16').length).toBeGreaterThanOrEqual(2)
     })
   })
-})
+  it('displays drag overlay on window dragenter and adds dropped YouTube link to queue', async () => {
+    vi.mocked(api.addSong).mockResolvedValue({ status: 'ok' } as any)
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/Paste a link or search for a song/i)).toBeInTheDocument()
+    })
+
+    // Simulate dragenter with a link
+    fireEvent.dragEnter(window, {
+      dataTransfer: {
+        types: ['text/uri-list', 'text/plain']
+      }
+    })
+
+    // Drag overlay should be visible
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: /Drop YouTube link to queue/i })).toBeInTheDocument()
+      expect(screen.getByText(/Drop YouTube link here/i)).toBeInTheDocument()
+    })
+
+    // Simulate dropping a YouTube URL with a playlist attached
+    fireEvent.drop(window, {
+      dataTransfer: {
+        getData: (format: string) => format === 'text/uri-list' ? 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL12345' : ''
+      }
+    })
+
+    // Overlay should disappear and song should be queued with stripped playlist param
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: /Drop YouTube link to queue/i })).not.toBeInTheDocument()
+      expect(api.addSong).toHaveBeenCalledWith('guild1', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+      expect(screen.getByText('Added to queue')).toBeInTheDocument()
+    })
+  })
+
+  it('cancels drag overlay on Escape key press', async () => {
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/Paste a link or search for a song/i)).toBeInTheDocument()
+    })
+
+    // Simulate dragenter
+    fireEvent.dragEnter(window, {
+      dataTransfer: { types: ['text/uri-list'] }
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: /Drop YouTube link to queue/i })).toBeInTheDocument()
+    })
+
+    // Press Escape
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: /Drop YouTube link to queue/i })).not.toBeInTheDocument()
+    })
+  })
+});

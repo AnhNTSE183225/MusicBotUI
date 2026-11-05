@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef, useLayoutEffect, type ReactNode } from 'react'
-import { AudioLines, ArrowUpRight, Bug, CalendarDays, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
+import { ArrowDownToLine, AudioLines, ArrowUpRight, Bug, CalendarDays, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -11,7 +11,7 @@ import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, con
 
 import { MarqueeText } from '@/components/MarqueeText'
 import { PlaylistModal } from '@/components/PlaylistModal'
-import { isYouTubePlaylistUrl, stripPlaylistFromUrl } from '@/lib/youtube'
+import { isYouTubePlaylistUrl, stripPlaylistFromUrl, extractYouTubeUrlFromDataTransfer } from '@/lib/youtube'
 import { PatchNotesModal } from '@/components/PatchNotesModal'
 import { CURRENT_VERSION, LATEST_PATCH, usePatchNotesReadState } from '@/data/patchNotes'
 import { ScheduleView } from '@/components/ScheduleView'
@@ -775,24 +775,103 @@ function MusicRoom() {
       }
   }, [currentGuildId, isVoiceConnected]);
   
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  const queueSongUrl = useCallback(async (rawUrl: string) => {
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return;
+    if (!currentGuildId) {
+      setNotice('Please select a server first');
+      return;
+    }
+    if (!isVoiceConnected) {
+      setNotice('Join a voice channel to play music');
+      return;
+    }
+    const url = stripPlaylistFromUrl(trimmed);
+    try {
+      await addSong(currentGuildId, url);
+      setNotice('Added to queue');
+    } catch(e: any) {
+      setNotice(e?.message || 'Failed to add song');
+    }
+  }, [currentGuildId, isVoiceConnected]);
+
   const handleAddSong = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    const q = query;
+    setQuery('');
+    await queueSongUrl(q);
+  }, [query, queueSongUrl]);
+
+  // Global window drag-and-drop listener for YouTube links (Listening Room view)
+  useEffect(() => {
+    if (roomView !== 'room') {
+      setIsDraggingOver(false);
+      dragCounterRef.current = 0;
+      return;
+    }
+
+    const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
-      if (!query.trim() || !currentGuildId || !isVoiceConnected) return;
-      const url = stripPlaylistFromUrl(query.trim());
-      if (false && isYouTubePlaylistUrl(url)) {
-          setPlaylistModalInitialUrl(url);
-          setPlaylistModalOpen(true);
-          setQuery('');
-          return;
+      dragCounterRef.current++;
+      if (e.dataTransfer && e.dataTransfer.types.length > 0) {
+        setIsDraggingOver(true);
       }
-      setQuery('');
-      try {
-          await addSong(currentGuildId, url);
-          setNotice('Added to queue');
-      } catch(e) {
-          setNotice('Failed to add song');
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
       }
-  }, [currentGuildId, isVoiceConnected, query]);
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current--;
+      if (dragCounterRef.current <= 0) {
+        dragCounterRef.current = 0;
+        setIsDraggingOver(false);
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setIsDraggingOver(false);
+
+      const ytUrl = extractYouTubeUrlFromDataTransfer(e.dataTransfer);
+      if (ytUrl) {
+        queueSongUrl(ytUrl);
+      } else {
+        setNotice('Please drop a valid YouTube or YouTube Music link');
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        dragCounterRef.current = 0;
+        setIsDraggingOver(false);
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [roomView, queueSongUrl]);
 
   // ---------------------------------------------------------------------------
   // AI Auto-Queue handlers
@@ -2476,6 +2555,22 @@ function MusicRoom() {
           </DialogContent>
         )}
       </Dialog>
+      {/* Drag & Drop Overlay for YouTube Links */}
+      {roomView === 'room' && isDraggingOver && (
+        <div className="drag-drop-overlay" role="region" aria-label="Drop YouTube link to queue">
+          <div className="drag-drop-content">
+            <div className="drag-drop-icon-wrapper">
+              <ArrowDownToLine size={32} />
+            </div>
+            <div>
+              <h3 className="drag-drop-title">Drop YouTube link here</h3>
+              <p className="drag-drop-desc">
+                Release to immediately add the song to the shared queue
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
       <PlaylistModal
         open={playlistModalOpen}

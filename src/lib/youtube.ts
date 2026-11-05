@@ -96,3 +96,65 @@ export function stripPlaylistFromUrl(query: string): string {
     return trimmed;
   }
 }
+/**
+ * Detects if a URL or string is a valid YouTube or YouTube Music link.
+ */
+export function isYouTubeUrl(query: string): boolean {
+  if (!query || typeof query !== 'string') return false;
+  const trimmed = query.trim();
+  return /^(?:https?:\/\/)?(?:(?:www|m|music)\.)?(?:youtube\.com|youtu\.be)\/\S+$/i.test(trimmed);
+}
+
+/**
+ * Extracts a YouTube URL from a drag-and-drop DataTransfer object.
+ * Supports text/uri-list, text/plain, and text/html drag payloads.
+ */
+export function extractYouTubeUrlFromDataTransfer(dataTransfer: DataTransfer | null): string | null {
+  if (!dataTransfer) return null;
+
+  // 1. Try text/uri-list (standard for dragging links and tabs)
+  try {
+    const uriList = dataTransfer.getData('text/uri-list');
+    if (uriList) {
+      const lines = uriList.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && isYouTubeUrl(trimmed)) {
+          return trimmed;
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Try text/plain (plain text drag or URL copy)
+  try {
+    const plainText = dataTransfer.getData('text/plain');
+    if (plainText) {
+      const trimmed = plainText.trim();
+      if (isYouTubeUrl(trimmed)) {
+        return trimmed;
+      }
+      const match = plainText.match(/https?:\/\/(?:(?:www|m|music)\.)?(?:youtube\.com|youtu\.be)\/[^\s"']+/i);
+      if (match) {
+        return match[0];
+      }
+    }
+  } catch {}
+
+  // 3. Try text/html (dragged rich anchor tags or web elements)
+  try {
+    const html = dataTransfer.getData('text/html');
+    if (html) {
+      const hrefMatch = html.match(/href=["'](https?:\/\/(?:(?:www|m|music)\.)?(?:youtube\.com|youtu\.be)\/[^"']+)["']/i);
+      if (hrefMatch) {
+        return hrefMatch[1];
+      }
+      const textMatch = html.match(/https?:\/\/(?:(?:www|m|music)\.)?(?:youtube\.com|youtu\.be)\/[^\s"']+/i);
+      if (textMatch) {
+        return textMatch[0];
+      }
+    }
+  } catch {}
+
+  return null;
+}
