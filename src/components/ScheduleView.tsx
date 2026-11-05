@@ -128,6 +128,11 @@ export function ScheduleView({
   const [slideDir, setSlideDir] = useState<'right' | 'left'>('right')
   const handledEventUrlRef = useRef(false)
 
+  useEffect(() => {
+    setSelected(null)
+    setEditing(null)
+  }, [guildId])
+
   const clearEventUrl = () => {
     if (typeof window === 'undefined') return
     try {

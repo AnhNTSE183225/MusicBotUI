@@ -77,4 +77,34 @@ describe('ScheduleView URL deep-linking & Modal Loop Prevention', () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByRole('heading', { name: /Movie Night & Chill/i })).not.toBeInTheDocument()
   })
-})
+  it('closes open event modal when guildId prop changes to a different guild', async () => {
+    const { rerender } = render(
+      <ScheduleView
+        guildId="guild1"
+        guildName="Test Guild"
+        userId="u2"
+        isAdmin={false}
+      />
+    )
+
+    // Wait for the modal to auto-open
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /Movie Night & Chill/i })).toBeInTheDocument()
+    })
+
+    // Switch to guild2
+    rerender(
+      <ScheduleView
+        guildId="guild2"
+        guildName="Another Guild"
+        userId="u2"
+        isAdmin={false}
+      />
+    )
+
+    // Modal must close cleanly
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: /Movie Night & Chill/i })).not.toBeInTheDocument()
+    })
+  })
+});

@@ -80,6 +80,14 @@ function MusicRoom() {
   const [isAuthLoaded, setIsAuthLoaded] = useState(false)
   const [guilds, setGuilds] = useState<GuildSession[]>([])
   const [currentGuildId, setCurrentGuildId] = useState<string | null>(null)
+  const [roomView, setRoomView] = useState<'room' | 'schedule'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const v = params.get('view') || params.get('tab');
+      if (v === 'schedule') return 'schedule';
+    }
+    return 'room';
+  });
   const [isCheckingVoice, setIsCheckingVoice] = useState(false)
   
   const [current, setCurrent] = useState<Track | null>(null)
@@ -400,28 +408,27 @@ function MusicRoom() {
       if (list.length > 0) setGuilds(list);
       if (list.length > 0) {
         const activeVoiceGuild = list.find((item) => Boolean(item.channel_id));
-        const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-        const urlGuildId = urlParams?.get('guild');
-        const matchedUrl = urlGuildId && list.find((item) => item.id === urlGuildId);
 
         setCurrentGuildId((prev) => {
-          if (matchedUrl) {
-            try { localStorage.setItem('selected_guild_id', matchedUrl.id); } catch {}
-            return matchedUrl.id;
+          // If the user already has a valid server selected, KEEP IT!
+          if (prev && list.some((item) => item.id === prev)) {
+            // Auto-switch to active voice channel only if user is in Listening Room view
+            if (roomView === 'room' && activeVoiceGuild && activeVoiceGuild.id !== prev) {
+              try { localStorage.setItem('selected_guild_id', activeVoiceGuild.id); } catch {}
+              return activeVoiceGuild.id;
+            }
+            return prev;
           }
-          // If the user has joined a voice channel in any server, prioritize that server!
+          // If no server selected yet or previously selected server no longer exists:
           if (activeVoiceGuild) {
             try { localStorage.setItem('selected_guild_id', activeVoiceGuild.id); } catch {}
             return activeVoiceGuild.id;
-          }
-          if (prev && list.some((item) => item.id === prev)) {
-            return prev;
           }
           const savedGuildId = typeof window !== 'undefined' ? localStorage.getItem('selected_guild_id') : null;
           const matchedSaved = savedGuildId && list.find((item) => item.id === savedGuildId);
           return (matchedSaved || list[0]).id;
         });
-        const active = list.find((item) => item.id === (matchedUrl ? matchedUrl.id : (activeVoiceGuild ? activeVoiceGuild.id : (currentGuildId || list[0].id))));
+        const active = list.find((item) => item.id === (currentGuildId || list[0].id));
         if (active) {
           setSummoned(active.bot_connected);
         }
@@ -440,7 +447,25 @@ function MusicRoom() {
         setIsCheckingVoice(false);
       }
     }
-  }, [currentGuildId]);
+  }, [currentGuildId, roomView]);
+
+  const selectGuild = useCallback((id: string) => {
+    setCurrentGuildId(id);
+    const g = guilds.find((item) => item.id === id);
+    if (g) setSummoned(g.bot_connected);
+    try { localStorage.setItem('selected_guild_id', id); } catch {}
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('guild')) {
+          url.searchParams.set('guild', id);
+          const newSearch = url.searchParams.toString();
+          const newUrl = url.pathname + (newSearch ? `?${newSearch}` : '') + url.hash;
+          window.history.replaceState(null, '', newUrl);
+        }
+      } catch {}
+    }
+  }, [guilds]);
 
   // Auth & Guilds initial load
   useEffect(() => {
@@ -630,14 +655,6 @@ function MusicRoom() {
   const currentGuild = useMemo(() => guilds.find(g => g.id === currentGuildId) || guilds[0], [guilds, currentGuildId]);
   const currentGuildName = useMemo(() => currentGuild?.name || 'The Listening Room', [currentGuild]);
   const isGuildAdmin = Boolean(currentGuild?.is_admin);
-  const [roomView, setRoomView] = useState<'room' | 'schedule'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const v = params.get('view') || params.get('tab');
-      if (v === 'schedule') return 'schedule';
-    }
-    return 'room';
-  });
   const { events: scheduleEvents, members: scheduleMembers } = useScheduleStore(currentGuildId);
   const pendingInvites = useMemo(() => countPendingInvites(scheduleEvents, user?.id || '', scheduleMembers), [scheduleEvents, user?.id, scheduleMembers]);
   const currentVoiceChannelName = useMemo(() => currentGuild?.channel_name || 'voice', [currentGuild]);
@@ -994,11 +1011,7 @@ function MusicRoom() {
               {guilds.map(g => (
                 <DropdownMenuItem
                   key={g.id}
-                  onClick={() => {
-                    setCurrentGuildId(g.id);
-                    setSummoned(g.bot_connected);
-                    try { localStorage.setItem('selected_guild_id', g.id); } catch {}
-                  }}
+                  onClick={() => selectGuild(g.id)}
                   className="flex items-center justify-between gap-2 cursor-pointer"
                 >
                   <span className="flex items-center gap-2 truncate">
@@ -1169,12 +1182,7 @@ function MusicRoom() {
             userId={user?.id || ''}
             isAdmin={isGuildAdmin}
             guilds={guilds}
-            onSelectGuild={(id) => {
-              setCurrentGuildId(id);
-              try { localStorage.setItem('selected_guild_id', id); } catch {}
-              const g = guilds.find((item) => item.id === id);
-              if (g) setSummoned(g.bot_connected);
-            }}
+            onSelectGuild={selectGuild}
           />
         )}
 
