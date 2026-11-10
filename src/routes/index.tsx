@@ -309,7 +309,7 @@ function MusicRoom() {
   }, [position, userOffset, lyrics?.intro_offset]);
 
   const activeLineIndex = useMemo(() => {
-    if (!lyrics || !lyrics.lines.length) return -1;
+    if (!lyrics || !Array.isArray(lyrics.lines) || !lyrics.lines.length) return -1;
     return lyrics.lines.findIndex((line, i) => {
       const nextLine = lyrics.lines[i + 1];
       const end = nextLine ? nextLine.begin : line.end;
@@ -1676,7 +1676,7 @@ function MusicRoom() {
                       <h3>Nothing playing</h3>
                       <p>Start a song to see synchronized lyrics.</p>
                     </div>
-                  ) : !lyrics || !lyrics.lines.length ? (
+                  ) : !lyrics || !Array.isArray(lyrics.lines) || !lyrics.lines.length ? (
                     <div className="empty-queue">
                       <FileText size={26} />
                       <h3>No lyrics found</h3>

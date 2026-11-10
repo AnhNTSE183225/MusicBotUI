@@ -6,20 +6,22 @@ let LOGIN_URL = "";
 export async function initConfig() {
     if (API_URL) return; // Already initialized
     try {
-        const isLocal = import.meta.env.DEV;
-        const configPath = isLocal ? "/config.yml" : "/config.prod.yml";
+        const activeProfile = (import.meta.env.PROFILE || import.meta.env.VITE_PROFILE || "DEV").trim().toUpperCase();
+        const configFile = activeProfile === "PROD" ? "/config.prod.yaml" : "/config.dev.yaml";
         
-        const configRes = await fetch(configPath);
+        const configRes = await fetch(configFile);
         if (!configRes.ok) {
-            throw new Error(`Failed to load ${configPath}: ${configRes.statusText}`);
+            throw new Error(`Failed to load ${configFile}: ${configRes.statusText}`);
         }
         
         const yamlText = await configRes.text();
         const config = load(yamlText) as any;
         
-        // Support both old production_api_url and new api_url
-        const baseUrl = config.api_url || config.production_api_url || (isLocal ? "http://localhost:8000" : "");
+        if (!config?.api_url) {
+            throw new Error(`api_url not found in ${configFile}`);
+        }
         
+        const baseUrl = config.api_url;
         API_URL = baseUrl + "/api";
         LOGIN_URL = baseUrl + "/login";
     } catch (e) {
