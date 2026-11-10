@@ -544,7 +544,7 @@ function MusicRoom() {
                 album: 'Discord',
                 image: optimizeThumbnailUrl(state.current.thumbnail) || getImageForTrack(state.current.title),
                 duration: state.current.duration || 0,
-                requestedBy: state.current.requester_handle || 'Unknown',
+                requestedBy: state.current.requester_handle || state.current.requester_name || 'Unknown',
                 requestedAvatar: (state.current.requester_handle === 'AI Auto-Queue' || state.current.requester_avatar === '/logo_icon.svg')
                   ? logoIcon
                   : (state.current.requester_avatar || null)
@@ -610,7 +610,7 @@ function MusicRoom() {
                     album: 'Discord',
                     image: optimizeThumbnailUrl(q.thumbnail) || getImageForTrack(q.title),
                     duration: q.duration || 0,
-                    requestedBy: q.requester_handle || 'Unknown',
+                    requestedBy: q.requester_handle || q.requester_name || 'Unknown',
                     requestedAvatar: (q.requester_handle === 'AI Auto-Queue' || q.requester_avatar === '/logo_icon.svg')
                       ? logoIcon
                       : (q.requester_avatar || null),
