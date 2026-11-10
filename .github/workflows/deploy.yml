@@ -11,6 +11,9 @@ jobs:
     permissions:
       contents: read
       deployments: write
+    env:
+      PROFILE: PROD
+      VITE_PROFILE: PROD
 
     steps:
       - name: Checkout code
@@ -27,6 +30,8 @@ jobs:
       - name: Build project
         env:
           NITRO_PRESET: cloudflare-pages
+          PROFILE: PROD
+          VITE_PROFILE: PROD
         run: npm run build
 
       - name: Create Cloudflare Pages project
