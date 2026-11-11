@@ -991,7 +991,18 @@ function EventEditor({
   onClose: () => void
   onSave: (data: Partial<ScheduleEvent>) => Promise<void>
 }) {
-  const start0 = initial ? parseISO(initial.start) : (() => { const d = startOfDay(date ?? new Date()); d.setHours(20); return d })()
+  const start0 = initial ? parseISO(initial.start) : (() => {
+    const now = new Date()
+    const target = date ? new Date(date) : now
+    if (isSameDay(target, now)) {
+      const nextHour = new Date(now)
+      nextHour.setHours(now.getHours() + 1, 0, 0, 0)
+      return nextHour
+    }
+    const d = startOfDay(target)
+    d.setHours(19, 0, 0, 0)
+    return d
+  })()
   const [title, setTitle] = useState(initial?.title ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [category, setCategory] = useState<EventCategory>(initial?.category ?? 'other')
@@ -1052,6 +1063,12 @@ function EventEditor({
     }
 
     const localDate = new Date(`${day}T${time}`)
+    if (!isNaN(localDate.getTime())) {
+      const isPast = localDate.getTime() < Date.now() - 60000
+      if (isPast && (!initial || parseISO(initial.start).getTime() !== localDate.getTime())) {
+        return setError('Cannot schedule an event in the past. Please choose a future date and time.')
+      }
+    }
     const startIso = isNaN(localDate.getTime()) ? `${day}T${time}` : localDate.toISOString()
 
     const data: Partial<ScheduleEvent> = {

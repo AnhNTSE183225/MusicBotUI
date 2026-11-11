@@ -154,7 +154,28 @@ export async function getGuilds(): Promise<{ guilds: GuildSession[] }> {
     }
 }
 
-export async function getQueue(guildId: string) {
+export type PlaybackStatus = 'disconnected' | 'idle' | 'loading' | 'playing' | 'paused';
+
+export interface QueueStateResponse {
+    status: PlaybackStatus;
+    queue: any[];
+    current: any | null;
+    queue_index: number;
+    volume: number;
+    loop: boolean;
+    is_playing: boolean;
+    is_paused: boolean;
+    bot_connected: boolean;
+    position: number;
+    skip_votes?: number;
+    skip_votes_required?: number;
+    ai_auto_enabled?: boolean;
+    ai_prompt?: string;
+    ai_set_by_name?: string | null;
+    ai_set_by_avatar?: string | null;
+}
+
+export async function getQueue(guildId: string): Promise<QueueStateResponse> {
     return await fetchApi(`/queue/${guildId}`);
 }
 

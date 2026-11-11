@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, aiConfirmBatch, getAIAutoQueue, setAIAutoQueue, getGeminiKeys, contributeGeminiKey, deleteGeminiKey, type GuildSession, type AISong, type AIAutoQueueConfig, type GeminiKeyInfo, type GeminiKeysResponse } from '@/lib/api'
+import { checkAuth, getLoginUrl, getGuilds, getQueue, getStreamUrl, addSong, controlJoin, controlSkip, controlStop, controlPause, controlResume, controlLoop, controlVolume, controlSkipTo, controlRemove, controlClear, getLyrics, aiSuggest, aiConfirmSong, aiConfirmBatch, getAIAutoQueue, setAIAutoQueue, getGeminiKeys, contributeGeminiKey, deleteGeminiKey, type GuildSession, type AISong, type AIAutoQueueConfig, type GeminiKeyInfo, type GeminiKeysResponse, type PlaybackStatus } from '@/lib/api'
 
 import { MarqueeText } from '@/components/MarqueeText'
 import { PlaylistModal } from '@/components/PlaylistModal'
@@ -92,6 +92,7 @@ function MusicRoom() {
   
   const [current, setCurrent] = useState<Track | null>(null)
   const [queue, setQueue] = useState<Track[]>([])
+  const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>('disconnected')
   const [playing, setPlaying] = useState(false)
   const [stopped, setStopped] = useState(true)
   const [loop, setLoop] = useState(false)
@@ -536,7 +537,19 @@ function MusicRoom() {
           try {
             const state = JSON.parse(event.data);
             
-            if (state.current) {
+            const rawStatus: PlaybackStatus = state.status || (
+              state.bot_connected === false ? 'disconnected' :
+              (state.current && !state.stopped && !state.is_paused ? 'playing' :
+               state.current && !state.stopped && state.is_paused ? 'paused' : 'idle')
+            );
+            setPlaybackStatus(rawStatus);
+
+            const isPlaying = rawStatus === 'playing';
+            const isPaused = rawStatus === 'paused';
+            const isLoading = rawStatus === 'loading';
+            const isTrackActive = isPlaying || isPaused || isLoading;
+
+            if (state.current && isTrackActive) {
               setCurrent({
                 id: 'current',
                 title: state.current.title,
@@ -550,8 +563,7 @@ function MusicRoom() {
                   : (state.current.requester_avatar || null)
               });
               setStopped(false);
-              const isPaused = !!state.is_paused;
-              setPlaying(!isPaused);
+              setPlaying(isPlaying);
               const rawPos = typeof state.position === 'number' ? state.position : 0;
               const trackDur = state.current.duration || 0;
               const serverPos = trackDur > 0 ? Math.min(rawPos, trackDur) : rawPos;
