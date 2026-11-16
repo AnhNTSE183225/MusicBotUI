@@ -419,4 +419,50 @@ describe('UI Integration & Dedicated Playlist Button vs Normal Paste', () => {
       expect(screen.queryByRole('region', { name: /Drop YouTube link to queue/i })).not.toBeInTheDocument()
     })
   })
+
+  it('shows processing acknowledgment and prevents duplicate addSong calls while request is in flight', async () => {
+    let resolveAdd!: (val: any) => void
+    vi.mocked(api.addSong).mockImplementation(
+      () => new Promise(resolve => { resolveAdd = resolve })
+    )
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add to queue/i })).toBeInTheDocument()
+    })
+
+    const searchInput = screen.getByPlaceholderText(/Paste a link or search for a song/i) as HTMLInputElement
+    const addBtn = screen.getByRole('button', { name: /Add to queue/i })
+
+    fireEvent.change(searchInput, {
+      target: { value: 'https://www.youtube.com/watch?v=XUrmskUYoas' },
+    })
+
+    // First submit
+    fireEvent.click(addBtn)
+
+    await waitFor(() => {
+      expect(addBtn).toBeDisabled()
+      expect(addBtn).toHaveAttribute('aria-busy', 'true')
+      expect(searchInput).toBeDisabled()
+      expect(screen.getByText(/Adding song to queue/i).closest('[role="status"]')).toBeInTheDocument()
+    })
+
+    // Attempt spam clicks/submits while request is still pending
+    fireEvent.click(addBtn)
+    fireEvent.submit(searchInput.closest('form')!)
+    expect(api.addSong).toHaveBeenCalledTimes(1)
+
+    // Complete request -> UI re-enables and clears input
+    resolveAdd({ status: 'success' })
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Adding song to queue/i)).not.toBeInTheDocument()
+      expect(searchInput).not.toBeDisabled()
+      expect(searchInput.value).toBe('')
+      expect(screen.getByText('Added to queue')).toBeInTheDocument()
+    })
+  })
 });

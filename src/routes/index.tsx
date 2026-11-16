@@ -98,6 +98,10 @@ function MusicRoom() {
   const [loop, setLoop] = useState(false)
   const [volume, setVolume] = useState(75)
   const [query, setQuery] = useState('')
+  const [addSongStatus, setAddSongStatus] = useState<'idle' | 'loading'>('idle')
+  const [pendingSongQuery, setPendingSongQuery] = useState('')
+  const addingSongRef = useRef(false)
+  const isAddingSong = addSongStatus === 'loading'
   const [dialog, setDialog] = useState<'connection' | 'help' | 'contribution' | null>(null)
   const [notice, setNotice] = useState('')
   const [summoned, setSummoned] = useState(false)
@@ -790,32 +794,43 @@ function MusicRoom() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef(0);
 
-  const queueSongUrl = useCallback(async (rawUrl: string) => {
+  const queueSongUrl = useCallback(async (rawUrl: string): Promise<boolean> => {
     const trimmed = rawUrl.trim();
-    if (!trimmed) return;
+    if (!trimmed || addingSongRef.current) return false;
     if (!currentGuildId) {
       setNotice('Please select a server first');
-      return;
+      return false;
     }
     if (!isVoiceConnected) {
       setNotice('Join a voice channel to play music');
-      return;
+      return false;
     }
     const url = stripPlaylistFromUrl(trimmed);
+    addingSongRef.current = true;
+    setAddSongStatus('loading');
+    setPendingSongQuery(trimmed);
+    setNotice('Processing track request...');
     try {
       await addSong(currentGuildId, url);
       setNotice('Added to queue');
-    } catch(e: any) {
+      return true;
+    } catch (e: any) {
       setNotice(e?.message || 'Failed to add song');
+      return false;
+    } finally {
+      addingSongRef.current = false;
+      setAddSongStatus('idle');
+      setPendingSongQuery('');
     }
   }, [currentGuildId, isVoiceConnected]);
 
   const handleAddSong = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
-    const q = query;
-    setQuery('');
-    await queueSongUrl(q);
+    if (!query.trim() || addingSongRef.current) return;
+    const ok = await queueSongUrl(query);
+    if (ok) {
+      setQuery('');
+    }
   }, [query, queueSongUrl]);
 
   // Global window drag-and-drop listener for YouTube links (Listening Room view)
@@ -1544,36 +1559,65 @@ function MusicRoom() {
             )}
 
             {activeTab === 'queue' && (
-              <form className="add-track" onSubmit={handleAddSong}>
-                <Music2 size={18} />
-                <Input aria-label="Song search or URL" placeholder="Paste a link or search for a song" value={query} onChange={event => setQuery(event.target.value)} />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Add playlist"
-                      className="h-[27px] w-[27px] text-muted-foreground hover:text-foreground shrink-0"
-                      onClick={() => {
-                        const trimmed = query.trim();
+              <>
+                <form className="add-track" onSubmit={handleAddSong}>
+                  <Music2 size={18} />
+                  <Input
+                    aria-label="Song search or URL"
+                    placeholder="Paste a link or search for a song"
+                    value={query}
+                    disabled={isAddingSong}
+                    onChange={event => setQuery(event.target.value)}
+                  />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Add playlist"
+                        disabled={isAddingSong}
+                        className="h-[27px] w-[27px] text-muted-foreground hover:text-foreground shrink-0"
+                        onClick={() => {
+                          const trimmed = query.trim();
 
-                        if (isYouTubePlaylistUrl(trimmed)) {
-                          setPlaylistModalInitialUrl(trimmed);
-                          setQuery('');
-                        } else {
-                          setPlaylistModalInitialUrl('');
-                        }
-                        setPlaylistModalOpen(true);
-                      }}
-                    >
-                      <ListMusic size={16} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Add playlist</TooltipContent>
-                </Tooltip>
-                <Button size="icon" aria-label="Add to queue" disabled={!query.trim()} type="submit"><Plus /></Button>
-              </form>
+                          if (isYouTubePlaylistUrl(trimmed)) {
+                            setPlaylistModalInitialUrl(trimmed);
+                            setQuery('');
+                          } else {
+                            setPlaylistModalInitialUrl('');
+                          }
+                          setPlaylistModalOpen(true);
+                        }}
+                      >
+                        <ListMusic size={16} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Add playlist</TooltipContent>
+                  </Tooltip>
+                  <Button
+                    size="icon"
+                    aria-label="Add to queue"
+                    aria-busy={isAddingSong}
+                    disabled={!query.trim() || isAddingSong}
+                    type="submit"
+                  >
+                    {isAddingSong ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus />}
+                  </Button>
+                </form>
+                {isAddingSong && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    <span className="truncate">
+                      Adding song to queue{pendingSongQuery ? `: ${pendingSongQuery}` : '...'}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
 
             {activeTab === 'queue' ? (
