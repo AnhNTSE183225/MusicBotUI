@@ -173,6 +173,7 @@ export interface QueueStateResponse {
     ai_prompt?: string;
     ai_set_by_name?: string | null;
     ai_set_by_avatar?: string | null;
+    playback_error?: string | null;
 }
 
 export async function getQueue(guildId: string): Promise<QueueStateResponse> {

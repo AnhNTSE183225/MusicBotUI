@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef, useLayoutEffect, type ReactNode } from 'react'
-import { ArrowDownToLine, AudioLines, ArrowUpRight, Bug, CalendarDays, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, AudioLines, ArrowUpRight, Bug, CalendarDays, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -44,7 +44,7 @@ function IconControl({ label, children, onClick, active = false, disabled = fals
   return <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label={label} aria-pressed={active} disabled={disabled} onClick={onClick} className={`${active ? 'text-primary' : 'text-muted-foreground'} ${className}`}>{children}</Button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>
 }
 
-export type Track = { id: string; title: string; artist: string; album: string; image: string; duration: number; requestedBy: string; requestedAvatar?: string | null; originalIndex?: number }
+export type Track = { id: string; title: string; artist: string; album: string; image: string; duration: number; requestedBy: string; requestedAvatar?: string | null; originalIndex?: number; error?: string | null }
 
 export type LyricWord = { begin: number; end: number; text: string; trailing_space?: boolean }
 export type LyricLine = { begin: number; end: number; text: string; words?: LyricWord[] | null }
@@ -102,6 +102,10 @@ function MusicRoom() {
   const [pendingSongQuery, setPendingSongQuery] = useState('')
   const addingSongRef = useRef(false)
   const isAddingSong = addSongStatus === 'loading'
+  const [trackError, setTrackError] = useState<string | null>(null)
+  const [serverPlaybackError, setServerPlaybackError] = useState<string | null>(null)
+  const [dismissedServerError, setDismissedServerError] = useState<string | null>(null)
+  const activeTrackError = trackError || (serverPlaybackError && serverPlaybackError !== dismissedServerError ? serverPlaybackError : null)
   const [dialog, setDialog] = useState<'connection' | 'help' | 'contribution' | null>(null)
   const [notice, setNotice] = useState('')
   const [summoned, setSummoned] = useState(false)
@@ -617,6 +621,16 @@ function MusicRoom() {
             if (state.stop_votes !== undefined) setStopVotes(state.stop_votes);
             if (state.stop_votes_required !== undefined) setStopVotesReq(state.stop_votes_required);
             if (state.queue_index !== undefined) setQueueIndex(state.queue_index);
+            if (isPlaying) {
+              setTrackError(null);
+            }
+            const nextPlaybackErr = typeof state.playback_error === 'string' && state.playback_error.trim()
+              ? state.playback_error.trim()
+              : null;
+            setServerPlaybackError(nextPlaybackErr);
+            if (!nextPlaybackErr) {
+              setDismissedServerError(null);
+            }
             
             if (state.queue && state.queue.length > 0) {
                 setQueue(state.queue.map((q: any, i: number) => ({
@@ -630,7 +644,8 @@ function MusicRoom() {
                     requestedAvatar: (q.requester_handle === 'AI Auto-Queue' || q.requester_avatar === '/logo_icon.svg')
                       ? logoIcon
                       : (q.requester_avatar || null),
-                    originalIndex: i
+                    originalIndex: i,
+                    error: q.error || null,
                 })));
             } else {
                 setQueue([]);
@@ -809,13 +824,16 @@ function MusicRoom() {
     addingSongRef.current = true;
     setAddSongStatus('loading');
     setPendingSongQuery(trimmed);
+    setTrackError(null);
     setNotice('Processing track request...');
     try {
       await addSong(currentGuildId, url);
       setNotice('Added to queue');
       return true;
     } catch (e: any) {
-      setNotice(e?.message || 'Failed to add song');
+      const msg = e?.message || 'Video is unavailable or failed to add song';
+      setTrackError(msg);
+      setNotice(msg);
       return false;
     } finally {
       addingSongRef.current = false;
@@ -1063,7 +1081,12 @@ function MusicRoom() {
 
   const handleSkipTo = useCallback(async (index: number) => {
       if (!currentGuildId || !isVoiceConnected) return;
-      try { await controlSkipTo(currentGuildId, index + 1); } catch(e: any) { setNotice(e.message || 'Action failed'); }
+      setTrackError(null);
+      try { await controlSkipTo(currentGuildId, index + 1); } catch(e: any) {
+        const msg = e?.message || 'Track is unavailable or failed to play';
+        setTrackError(msg);
+        setNotice(msg);
+      }
   }, [currentGuildId, isVoiceConnected]);
 
   const handleRemove = useCallback(async (index: number) => {
@@ -1617,6 +1640,29 @@ function MusicRoom() {
                     </span>
                   </div>
                 )}
+                {activeTrackError && (
+                  <div
+                    role="alert"
+                    className="mb-3 flex items-start gap-2.5 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2.5 text-xs text-red-200"
+                  >
+                    <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-red-300">Video unavailable or playback error</div>
+                      <p className="mt-0.5 break-words text-red-200/90">{activeTrackError}</p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Dismiss playback error"
+                      onClick={() => {
+                        setTrackError(null);
+                        if (serverPlaybackError) setDismissedServerError(serverPlaybackError);
+                      }}
+                      className="text-red-300/80 hover:text-red-100 shrink-0 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
@@ -1625,7 +1671,7 @@ function MusicRoom() {
                 <div className={`queue-list ${totalPages > 1 ? 'has-pagination' : ''}`}>{paginatedQueue.map((track) => {
                   const isCurrent = !stopped && (queueIndex >= 0 ? track.originalIndex === queueIndex : (Boolean(current) && track.title === current?.title));
                   return (
-                    <div className={`queue-row ${isCurrent ? 'is-current' : ''}`} key={track.id}>
+                    <div className={`queue-row ${isCurrent ? 'is-current' : ''} ${track.error ? 'border border-red-500/35 bg-red-500/5' : ''}`} key={track.id}>
                       <span className={`track-number ${isCurrent ? 'text-primary font-semibold flex items-center justify-center' : ''}`}>
                         {isCurrent && playing && !stopped ? (
                           <span className="equalizer is-playing" aria-label="Now playing">
@@ -1695,10 +1741,21 @@ function MusicRoom() {
                           ) : null}
                           <span className="queue-requester-name">{track.requestedBy || 'Unknown'}</span>
                         </div>
+                        {track.error && (
+                          <div className="mt-1 flex items-center gap-1 text-[11px] text-red-300" title={track.error}>
+                            <AlertTriangle className="h-3 w-3 shrink-0 text-red-400" />
+                            <span className="truncate">{track.error}</span>
+                          </div>
+                        )}
                       </div>
                       {isCurrent && (
                         <span className="now-playing-badge">
                           {playing ? 'NOW PLAYING' : 'PAUSED'}
+                        </span>
+                      )}
+                      {!isCurrent && track.error && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300 shrink-0">
+                          Unavailable
                         </span>
                       )}
                       <span className="track-duration">{formatTime(track.duration)}</span>

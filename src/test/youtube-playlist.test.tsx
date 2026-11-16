@@ -465,4 +465,60 @@ describe('UI Integration & Dedicated Playlist Button vs Normal Paste', () => {
       expect(screen.getByText('Added to queue')).toBeInTheDocument()
     })
   })
+
+  it('displays unavailable video alert on addSong failure and Unavailable badge from SSE playback_error', async () => {
+    vi.mocked(api.addSong).mockRejectedValueOnce(
+      new Error("'Face Like Me' is unavailable or having issues: All YouTube stream sources failed.")
+    )
+
+    const Component = Route.options.component!
+    render(<Component />)
+
+    await waitFor(() => {
+      expect(MockEventSource.instances.length).toBeGreaterThan(0)
+    })
+
+    const searchInput = screen.getByPlaceholderText(/Paste a link or search for a song/i) as HTMLInputElement
+    const addBtn = screen.getByRole('button', { name: /Add to queue/i })
+
+    fireEvent.change(searchInput, {
+      target: { value: 'https://www.youtube.com/watch?v=lBD-EDl_4WA' },
+    })
+    fireEvent.click(addBtn)
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent(/Video unavailable or playback error/i)
+      expect(alert).toHaveTextContent(/All YouTube stream sources failed/i)
+    })
+
+    // Dismiss alert
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss playback error/i }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    // Emit SSE snapshot with playback_error and failing queue track
+    const es = MockEventSource.instances[0]
+    es.emit({
+      status: 'idle',
+      bot_connected: true,
+      current: null,
+      queue_index: 0,
+      playback_error: "'Face Like Me' is unavailable or having issues: HTTP 403",
+      queue: [
+        {
+          title: 'Face Like Me',
+          artist: 'Artist',
+          duration: 104,
+          requester_name: 'Tester',
+          error: 'All YouTube stream sources failed (HTTP 403)',
+        },
+      ],
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/Face Like Me/i)
+      expect(screen.getByText('Unavailable')).toBeInTheDocument()
+      expect(screen.getByText(/All YouTube stream sources failed \(HTTP 403\)/i)).toBeInTheDocument()
+    })
+  })
 });
