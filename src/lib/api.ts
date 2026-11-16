@@ -403,6 +403,8 @@ export interface PlaylistPreviewResponse {
     uploader: string;
     thumbnail: string;
     total_tracks: number;
+    offset?: number;
+    has_more?: boolean;
     tracks: PlaylistTrack[];
 }
 
@@ -420,12 +422,20 @@ export interface AddPlaylistPayload {
     }>;
 }
 
-/** Fetch preview metadata and track list for a playlist. */
-export async function previewPlaylist(guildId: string, url: string): Promise<PlaylistPreviewResponse> {
+/** Fetch a paged preview of tracks (default: first 20 songs) for a playlist. */
+export async function previewPlaylist(
+    guildId: string,
+    url: string,
+    options?: { offset?: number; limit?: number },
+): Promise<PlaylistPreviewResponse> {
     return await fetchApi(`/playlist/${guildId}/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({
+            url,
+            offset: options?.offset ?? 0,
+            limit: options?.limit ?? 20,
+        }),
     });
 }
 

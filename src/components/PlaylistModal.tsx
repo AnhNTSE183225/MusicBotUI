@@ -35,7 +35,9 @@ export function PlaylistModal({
   onError,
 }: PlaylistModalProps) {
   const [url, setUrl] = useState(initialUrl);
+  const [loadedUrl, setLoadedUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<PlaylistPreviewResponse | null>(null);
@@ -51,11 +53,13 @@ export function PlaylistModal({
         handleFetchPreview(initialUrl);
       } else {
         setUrl('');
+        setLoadedUrl('');
         setPreview(null);
         setError('');
       }
     } else {
       setError('');
+      setLoadingMore(false);
     }
   }, [open, initialUrl]);
 
@@ -89,6 +93,7 @@ export function PlaylistModal({
     setLoading(true);
     setError('');
     setPreview(null);
+    setLoadedUrl(queryUrl);
 
     try {
       const data = await previewPlaylist(currentGuildId, queryUrl);
@@ -105,6 +110,40 @@ export function PlaylistModal({
       setLoading(false);
     }
   }, [url, currentGuildId]);
+
+  const handleLoadMore = useCallback(async () => {
+    const targetUrl = (loadedUrl || url).trim();
+    if (!preview || !targetUrl || !currentGuildId || loadingMore || !preview.has_more) return;
+
+    const prevCount = preview.tracks.length;
+    setLoadingMore(true);
+    setError('');
+
+    try {
+      const nextPage = await previewPlaylist(currentGuildId, targetUrl, {
+        offset: prevCount,
+        limit: 20,
+      });
+      const existingIndices = new Set(preview.tracks.map(t => t.index));
+      const appended = (nextPage.tracks || []).filter(t => !existingIndices.has(t.index));
+      const mergedTracks = [...preview.tracks, ...appended];
+
+      setPreview({
+        ...preview,
+        tracks: mergedTracks,
+        has_more: Boolean(nextPage.has_more) && appended.length > 0,
+        total_tracks: Math.max(nextPage.total_tracks || 0, mergedTracks.length),
+      });
+
+      if (endSong === prevCount && appended.length > 0) {
+        setEndSong(mergedTracks.length);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load more tracks from playlist.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [preview, loadedUrl, url, currentGuildId, loadingMore, endSong]);
 
   const handleApplyPreset = useCallback((count: number | 'all') => {
     if (!preview) return;
@@ -150,8 +189,22 @@ export function PlaylistModal({
   }, [preview, currentGuildId, isVoiceConnected, selectedCount, clampedStart, clampedEnd, onSuccess, onError, onOpenChange]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="playlist-modal glass-surface max-w-xl max-h-[90vh] flex flex-col p-6 gap-4">
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && (loading || adding || loadingMore)) return;
+        onOpenChange(nextOpen);
+      }}
+    >
+      <DialogContent
+        onInteractOutside={(e) => {
+          if (loading || adding || loadingMore) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (loading || adding || loadingMore) e.preventDefault();
+        }}
+        className="playlist-modal glass-surface max-w-xl max-h-[90vh] flex flex-col p-6 gap-4"
+      >
         <DialogHeader className="pb-1">
           <DialogTitle className="flex items-center gap-2.5 text-lg font-semibold text-foreground">
             <ListMusic className="text-primary" size={20} />
@@ -185,13 +238,13 @@ export function PlaylistModal({
                 }
               }}
               className="text-xs pr-8 h-9"
-              disabled={loading || adding}
+              disabled={loading || adding || loadingMore}
             />
             {url && (
               <button
                 type="button"
                 aria-label="Clear URL"
-                onClick={() => { setUrl(''); setPreview(null); setError(''); }}
+                onClick={() => { setUrl(''); setLoadedUrl(''); setPreview(null); setError(''); }}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
               >
                 <X size={14} />
@@ -202,7 +255,7 @@ export function PlaylistModal({
             type="button"
             size="sm"
             onClick={() => handleFetchPreview()}
-            disabled={!url.trim() || loading || adding}
+            disabled={!url.trim() || loading || adding || loadingMore}
             className="h-9 px-4 text-xs font-medium"
           >
             {loading ? <Loader2 size={14} className="animate-spin mr-1.5" /> : null}
@@ -222,7 +275,7 @@ export function PlaylistModal({
         {loading && (
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
             <Loader2 size={28} className="animate-spin text-primary" />
-            <span className="text-xs font-medium">Fetching playlist metadata and tracks...</span>
+            <span className="text-xs font-medium">Fetching playlist metadata and first 20 tracks...</span>
           </div>
         )}
 
@@ -256,7 +309,9 @@ export function PlaylistModal({
                   {preview.uploader && <span className="truncate">{preview.uploader}</span>}
                   {preview.uploader && <span>•</span>}
                   <span className="font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full text-[11px]">
-                    {preview.total_tracks} songs
+                    {preview.has_more
+                      ? `${totalTracks}${preview.total_tracks > totalTracks ? ` of ${preview.total_tracks}` : '+'} songs`
+                      : `${preview.total_tracks} songs`}
                   </span>
                 </div>
               </div>
@@ -412,6 +467,27 @@ export function PlaylistModal({
                   </div>
                 );
               })}
+              {preview.has_more && (
+                <div className="p-2.5 flex justify-center bg-card/30">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLoadMore}
+                    disabled={loadingMore || adding}
+                    className="h-8 px-4 text-xs font-medium gap-1.5"
+                  >
+                    {loadingMore ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" />
+                        Loading more...
+                      </>
+                    ) : (
+                      'Load more (next 20)'
+                    )}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -434,7 +510,7 @@ export function PlaylistModal({
               variant="ghost"
               size="sm"
               onClick={() => onOpenChange(false)}
-              disabled={adding}
+              disabled={adding || loadingMore}
               className="text-xs h-8"
             >
               Cancel
@@ -443,7 +519,7 @@ export function PlaylistModal({
               type="button"
               size="sm"
               onClick={handleAdd}
-              disabled={!preview || selectedCount === 0 || !isVoiceConnected || adding || loading}
+              disabled={!preview || selectedCount === 0 || !isVoiceConnected || adding || loading || loadingMore}
               className="text-xs h-8 font-medium gap-1.5"
             >
               {adding ? (

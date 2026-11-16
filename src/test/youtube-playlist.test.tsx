@@ -248,6 +248,76 @@ describe('PlaylistModal Component', () => {
       expect(onOpenChange).toHaveBeenCalledWith(false)
     })
   })
+
+  it('loads first 20 tracks and fetches next page when Load more button is clicked', async () => {
+    const firstPage: api.PlaylistPreviewResponse = {
+      title: 'Mix - Endless Radio',
+      uploader: 'YouTube Mix',
+      thumbnail: '',
+      total_tracks: 20,
+      offset: 0,
+      has_more: true,
+      tracks: Array.from({ length: 20 }, (_, i) => ({
+        index: i + 1,
+        id: `mix-${i + 1}`,
+        title: `Mix Track ${i + 1}`,
+        artist: 'Artist',
+        duration: 180,
+        url: `https://www.youtube.com/watch?v=mix-${i + 1}`,
+        thumbnail: '',
+      })),
+    }
+
+    const secondPage: api.PlaylistPreviewResponse = {
+      title: 'Mix - Endless Radio',
+      uploader: 'YouTube Mix',
+      thumbnail: '',
+      total_tracks: 25,
+      offset: 20,
+      has_more: false,
+      tracks: Array.from({ length: 5 }, (_, i) => ({
+        index: 21 + i,
+        id: `mix-${21 + i}`,
+        title: `Mix Track ${21 + i}`,
+        artist: 'Artist',
+        duration: 180,
+        url: `https://www.youtube.com/watch?v=mix-${21 + i}`,
+        thumbnail: '',
+      })),
+    }
+
+    vi.mocked(api.previewPlaylist)
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(secondPage)
+
+    render(
+      <PlaylistModal
+        open={true}
+        onOpenChange={() => {}}
+        currentGuildId="guild1"
+        isVoiceConnected={true}
+        initialUrl="https://www.youtube.com/watch?v=Nn1IeHL5DHY&list=RDNn1IeHL5DHY&start_radio=1"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Mix Track 20')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Load more \(next 20\)/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Load more \(next 20\)/i }))
+
+    await waitFor(() => {
+      expect(api.previewPlaylist).toHaveBeenNthCalledWith(
+        2,
+        'guild1',
+        'https://www.youtube.com/watch?v=Nn1IeHL5DHY&list=RDNn1IeHL5DHY&start_radio=1',
+        { offset: 20, limit: 20 }
+      )
+      expect(screen.getByText('Mix Track 25')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Load more \(next 20\)/i })).not.toBeInTheDocument()
+    })
+  })
 })
 
 describe('UI Integration & Dedicated Playlist Button vs Normal Paste', () => {
