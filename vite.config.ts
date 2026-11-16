@@ -12,6 +12,10 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function getProfileFromEnv(): string {
+  const envProfile = (process.env.PROFILE || process.env.VITE_PROFILE || "").trim().toUpperCase();
+  if (envProfile) {
+    return envProfile;
+  }
   try {
     const envPath = path.resolve(__dirname, ".env");
     if (fs.existsSync(envPath)) {
@@ -22,7 +26,7 @@ function getProfileFromEnv(): string {
       }
     }
   } catch (e) {}
-  return (process.env.PROFILE || process.env.VITE_PROFILE || "").trim().toUpperCase();
+  return "";
 }
 
 const activeProfile = getProfileFromEnv();
