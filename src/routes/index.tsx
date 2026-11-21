@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef, useLayoutEffect, type ReactNode } from 'react'
-import { AlertTriangle, ArrowDownToLine, AudioLines, ArrowUpRight, Bug, CalendarDays, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, AudioLines, ArrowUpRight, Bug, CalendarDays, Check, ChevronDown, CircleHelp, FileText, Github, GitPullRequest, Headphones, Heart, Key, ListMusic, Loader2, Lock, MoreHorizontal, Music2, Pause, Play, Plus, Radio, RefreshCw, Repeat2, Settings2, SkipBack, SkipForward, Sparkles, Square, Trash2, User, Volume2, VolumeX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
@@ -798,13 +798,19 @@ function MusicRoom() {
   }, [currentGuildId, isVoiceConnected]);
   const handleVolume = useCallback(async (val: number) => {
       if (!currentGuildId || !isVoiceConnected) return;
+      if (!isGuildAdmin) {
+          setNotice('Only server administrators can change the master volume');
+          return;
+      }
+      const prevVolume = volume;
       setVolume(val);
       try {
           await controlVolume(currentGuildId, val);
       } catch(e: any) {
-          setNotice(e.message || 'Action failed');
+          setVolume(prevVolume);
+          setNotice(e.message || 'Only server administrators can change the master volume');
       }
-  }, [currentGuildId, isVoiceConnected]);
+  }, [currentGuildId, isVoiceConnected, isGuildAdmin, volume]);
   
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef(0);
@@ -1386,7 +1392,25 @@ function MusicRoom() {
                 <IconControl label={activeTab === 'lyrics' ? 'View queue' : 'View lyrics'} active={activeTab === 'lyrics'} onClick={toggleLyrics}><AudioLines /></IconControl>
                 <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="text-muted-foreground" aria-label="More playback options"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent><DropdownMenuItem onClick={() => setNotice(`${displayCurrent.title} · ${displayCurrent.artist}`)}>Track details</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             </div>
-            <div className="volume-controls"><IconControl label={volume ? 'Mute volume' : 'Unmute volume'} onClick={() => handleVolume(volume ? 0 : 75)}>{volume ? <Volume2 /> : <VolumeX />}</IconControl><Slider aria-label="Volume" value={[volume]} onValueChange={value => handleVolume(value[0] ?? 0)} max={100} step={1} /><span className="volume-value">{volume}%</span></div>
+            <div className={`volume-controls${!isGuildAdmin ? ' opacity-75' : ''}`} title={isGuildAdmin ? 'Master volume' : 'Master volume (Admin only)'}>
+              <IconControl
+                label={!isGuildAdmin ? 'Master volume (Admin only)' : (volume ? 'Mute volume' : 'Unmute volume')}
+                disabled={!isGuildAdmin}
+                onClick={() => handleVolume(volume ? 0 : 75)}
+              >
+                {volume ? <Volume2 /> : <VolumeX />}
+              </IconControl>
+              <Slider
+                aria-label={isGuildAdmin ? 'Master volume' : 'Master volume (Admin only)'}
+                value={[volume]}
+                disabled={!isGuildAdmin}
+                onValueChange={value => handleVolume(value[0] ?? 0)}
+                max={100}
+                step={1}
+              />
+              {!isGuildAdmin && <Lock size={12} className="text-muted-foreground shrink-0" aria-hidden="true" />}
+              <span className="volume-value">{volume}%</span>
+            </div>
             <div className="player-footer"><Headphones size={14} /><span>Playing in <strong>{currentGuildName}</strong></span><span className="footer-quality">HIGH QUALITY</span></div>
           </section>
 
