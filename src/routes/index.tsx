@@ -14,8 +14,12 @@ import { PlaylistModal } from '@/components/PlaylistModal'
 import { isYouTubePlaylistUrl, stripPlaylistFromUrl, extractYouTubeUrlFromDataTransfer } from '@/lib/youtube'
 import { PatchNotesModal } from '@/components/PatchNotesModal'
 import { CURRENT_VERSION, LATEST_PATCH, usePatchNotesReadState } from '@/data/patchNotes'
+import { PulsePlanPromo } from '@/components/PulsePlanPromo'
 import { ScheduleView } from '@/components/ScheduleView'
 import { useScheduleStore, countPendingInvites } from '@/lib/schedule'
+
+// Temporarily disable the built-in Schedule UI in favor of PulsePlan (https://pulseplan.pages.dev/)
+const SCHEDULE_TEMPORARILY_DISABLED = true
 
 import ocean from '@/assets/ocean-drive.jpg'
 import dunes from '@/assets/sundown.jpg'
@@ -686,7 +690,7 @@ function MusicRoom() {
   const currentGuild = useMemo(() => guilds.find(g => g.id === currentGuildId) || guilds[0], [guilds, currentGuildId]);
   const currentGuildName = useMemo(() => currentGuild?.name || 'The Listening Room', [currentGuild]);
   const isGuildAdmin = Boolean(currentGuild?.is_admin);
-  const { events: scheduleEvents, members: scheduleMembers } = useScheduleStore(currentGuildId);
+  const { events: scheduleEvents, members: scheduleMembers } = useScheduleStore(SCHEDULE_TEMPORARILY_DISABLED ? null : currentGuildId);
   const pendingInvites = useMemo(() => countPendingInvites(scheduleEvents, user?.id || '', scheduleMembers), [scheduleEvents, user?.id, scheduleMembers]);
   const currentVoiceChannelName = useMemo(() => currentGuild?.channel_name || 'voice', [currentGuild]);
 
@@ -1268,8 +1272,8 @@ function MusicRoom() {
       >
         <div className="page-intro">
           <div>
-            <div className="eyebrow">{roomView === 'schedule' ? `${currentGuildName.toUpperCase()} · SERVER CALENDAR` : 'GOOD MUSIC. BETTER COMPANY.'}</div>
-            <h1>{roomView === 'schedule' ? 'Schedule' : 'Your listening room'}<span className="heading-dot">.</span></h1>
+            <div className="eyebrow">{roomView === 'schedule' ? (SCHEDULE_TEMPORARILY_DISABLED ? 'PULSEPLAN · SHARED EVENT SCHEDULER' : `${currentGuildName.toUpperCase()} · SERVER CALENDAR`) : 'GOOD MUSIC. BETTER COMPANY.'}</div>
+            <h1>{roomView === 'schedule' ? (SCHEDULE_TEMPORARILY_DISABLED ? 'Schedule moved to PulsePlan' : 'Schedule') : 'Your listening room'}<span className="heading-dot">.</span></h1>
           </div>
           <div ref={roomSwitchRef} className="room-view-switch" role="tablist" aria-label="Section">
             <div
@@ -1311,14 +1315,18 @@ function MusicRoom() {
         </div>
 
         {roomView === 'schedule' && (
-          <ScheduleView
-            guildId={currentGuildId}
-            guildName={currentGuildName}
-            userId={user?.id || ''}
-            isAdmin={isGuildAdmin}
-            guilds={guilds}
-            onSelectGuild={selectGuild}
-          />
+          SCHEDULE_TEMPORARILY_DISABLED ? (
+            <PulsePlanPromo />
+          ) : (
+            <ScheduleView
+              guildId={currentGuildId}
+              guildName={currentGuildName}
+              userId={user?.id || ''}
+              isAdmin={isGuildAdmin}
+              guilds={guilds}
+              onSelectGuild={selectGuild}
+            />
+          )
         )}
 
         <div className="music-layout">
