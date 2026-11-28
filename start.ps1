@@ -116,8 +116,16 @@ if (-not $proc) {
 $frontendPid = $proc.Id
 Set-Content -Path $pidFile -Value $frontendPid
 
-# Wait briefly for process to bind or fail
-Start-Sleep -Milliseconds 800
+# Wait for listener readiness (100ms polling with -DisableKeepAlive)
+$ready = $false
+for ($i = 0; $i -lt 50; $i++) {
+    Start-Sleep -Milliseconds 100
+    if ($proc.HasExited) { break }
+    try {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:3000" -UseBasicParsing -DisableKeepAlive -TimeoutSec 1 -ErrorAction SilentlyContinue
+        if ($resp -and $resp.StatusCode -eq 200) { $ready = $true; break }
+    } catch {}
+}
 
 if ($proc.HasExited) {
     Write-Host "ERROR: Frontend failed to start (process exited immediately)!" -ForegroundColor Red

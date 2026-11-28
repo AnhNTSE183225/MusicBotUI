@@ -11,10 +11,12 @@ param(
     [switch]$Clean
 )
 
+$ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$stopScript = Join-Path $root "stop.ps1"
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Magenta
@@ -23,6 +25,26 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host ""
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Start-Process -FilePath "winget" -ArgumentList "install --id OpenJS.NodeJS.LTS --exact --silent --accept-package-agreements --accept-source-agreements" -Wait -NoNewWindow | Out-Null
+    }
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        throw "Node.js LTS is missing (https://nodejs.org/). Install with: winget install OpenJS.NodeJS.LTS"
+    }
+}
+
+if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) {
+    if (Get-Command corepack -ErrorAction SilentlyContinue) {
+        & corepack enable 2>$null
+        & corepack prepare pnpm@latest --activate 2>$null
+    }
+}
+
+if (Test-Path $stopScript) {
+    & $stopScript | Out-Null
+}
 
 function Get-NpmExecutable {
     $pnpm = Get-Command pnpm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
